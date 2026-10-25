@@ -1,0 +1,221 @@
+--- a/source/game/cheats.c
++++ b/source/game/cheats.c
+@@ -54,6 +54,7 @@
+ #include "cache/cache_files.h"
+ #include "camera/director.h"
+ #include "camera/observer.h"
++#include "game/game.h"
+ #include "game/game_globals.h"
+ #include "game/players.h"
+ #include "hs/hs.h"
+@@ -195,10 +196,87 @@
+ 	return;
+ }
+ 
++/* port_config.c's: the cheats' settings (config.toml's [cheats], and the
++pause menu's SETTINGS, CHEATS) */
++int config_boolean(const char *name);
++unsigned long config_changes(void);
++
++/* port: a cheat that the player has on in the settings. Each is on for
++every tick of a game that is the player's own (not on a network: there the
++host's rules hold, cheats_network_client_enforce), put back each tick so
++that a map's scripts (b30's, around its cinematics) do not leave it off.
++Turning one off in the settings clears it once; while its setting is off,
++the console's and the maps' own use of the cheat is left alone */
++struct cheat_setting
++{
++	char const *name;
++	boolean *state;
++	boolean wanted;
++	boolean clear;
++};
++
++static struct cheat_setting cheat_settings[] =
++{
++	{ "cheats.infinite_ammo", &cheat.infinite_ammo, FALSE, FALSE },
++	{ "cheats.bottomless_clip", &cheat.bottomless_clip, FALSE, FALSE },
++	{ "cheats.super_jump", &cheat.super_jump, FALSE, FALSE },
++	{ "cheats.deathless_player", &cheat.deathless_player, FALSE, FALSE },
++	{ "cheats.omnipotent", &cheat.omnipotent, FALSE, FALSE },
++	{ "cheats.medusa", &cheat.medusa, FALSE, FALSE },
++	{ "cheats.jetpack", &cheat.jetpack, FALSE, FALSE },
++};
++
++#define NUMBER_OF_CHEAT_SETTINGS (sizeof(cheat_settings)/sizeof(cheat_settings[0]))
++
++/* the settings read again when one changed (config_changes), or when a map
++starts (force) */
++static unsigned long cheat_settings_changes = 0;
++static boolean cheat_settings_read = FALSE;
++
++static void cheats_settings_apply(
++	boolean force)
++{
++	unsigned long changes = config_changes();
++	boolean own_game = game_connection()==_game_connection_local && !network_game_distributed_client();
++	short index;
++
++	if (force || !cheat_settings_read || changes!=cheat_settings_changes)
++	{
++		cheat_settings_read = TRUE;
++		cheat_settings_changes = changes;
++		for (index = 0; index<(short)NUMBER_OF_CHEAT_SETTINGS; index++)
++		{
++			struct cheat_setting *setting = cheat_settings + index;
++			boolean wanted = config_boolean(setting->name)!=0;
++
++			if (setting->wanted && !wanted)
++				setting->clear = TRUE;
++			setting->wanted = wanted;
++		}
++	}
++
++	for (index = 0; index<(short)NUMBER_OF_CHEAT_SETTINGS; index++)
++	{
++		struct cheat_setting *setting = cheat_settings + index;
++
++		if (own_game)
++		{
++			if (setting->wanted)
++				*setting->state = TRUE;
++			else if (setting->clear)
++				*setting->state = FALSE;
++		}
++		setting->clear = FALSE;
++	}
++
++	return;
++}
++
+ void cheats_update(
+ 	void)
+ {
+ 	cheats_network_client_enforce();
++	cheats_settings_apply(FALSE);
+ 	if (cheat.controller_enabled)
+ 	{
+ 		short local_player_index;
+@@ -310,6 +388,7 @@
+ 	void)
+ {
+ 	cheats_load();
++	cheats_settings_apply(TRUE);
+ 
+ 	return;
+ }
+--- a/port/linux/src/port_config.c
++++ b/port/linux/src/port_config.c
+@@ -452,6 +452,41 @@
+ 		"profile starts at The Pillar of Autumn and opens each level as the one\n"
+ 		"before it is finished, as on the Xbox. Profiles already made keep their\n"
+ 		"progress; the console's profile_reset_campaign starts one over." },
++	{ "cheats.infinite_ammo", _config_boolean, "false", "HALO_CHEATS_INFINITE_AMMO", _environment_value, _platform_all,
++		"Infinite ammo: the reserve never runs out.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.bottomless_clip", _config_boolean, "false", "HALO_CHEATS_BOTTOMLESS_CLIP", _environment_value, _platform_all,
++		"Bottomless clip: the magazine never empties, so no reloading.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.super_jump", _config_boolean, "false", "HALO_CHEATS_SUPER_JUMP", _environment_value, _platform_all,
++		"Super jump: jump much higher.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.deathless_player", _config_boolean, "false", "HALO_CHEATS_DEATHLESS_PLAYER", _environment_value, _platform_all,
++		"Deathless player (god mode): no death by shots or falls.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.omnipotent", _config_boolean, "false", "HALO_CHEATS_OMNIPOTENT", _environment_value, _platform_all,
++		"Omnipotent: your shots kill in one hit.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.medusa", _config_boolean, "false", "HALO_CHEATS_MEDUSA", _environment_value, _platform_all,
++		"Medusa: enemies that look at you die.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.jetpack", _config_boolean, "false", "HALO_CHEATS_JETPACK", _environment_value, _platform_all,
++		"Jetpack: you can fly.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
++		"Not in another host's game: its rules." },
+ 
+ 	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
+ 		"Maps played as downloaded ones, besides those map sharing downloaded:\n"
+--- a/port/linux/game/menu_tags.c
++++ b/port/linux/game/menu_tags.c
+@@ -1819,13 +1819,12 @@
+ #define PAUSE_NETWORK_SCREEN \
+ 	"main_menu/settings_select/player_setup/player_profile_edit/network_setup/in_game/in_game_network_settings_screen"
+ 
+-/* Change Name's keyboard and Change Color's pictures are ui.map's, Network
+-Setup is for others' games (shown in co-op: its pages, pause_network_patch),
+-and About is nothing to it */
++/* Change Name's keyboard and Change Color's pictures are ui.map's, and About
++is nothing to it. (Network Setup stays in every game: its pages are those of
++pause_network_patch, and in a game alone its CHEATS) */
+ static char const *const pause_settings_hidden_items[] =
+ {
+ 	"main_menu/settings_select/player_setup/player_profile_edit/name_profile_item",
+-	PAUSE_NETWORK_ITEM,
+ 	"main_menu/settings_select/player_setup/player_profile_edit/color_profile_item",
+ 	"main_menu/settings_select/player_setup/player_profile_edit/about_item",
+ };
+@@ -1964,10 +1963,6 @@
+ 	{
+ 		long widget = widget_named(pause_settings_hidden_items[index]);
+ 
+-		/* (Network Setup stays in a co-op game, which is a network one or
+-		has players beside this one: build.campaign is a game alone) */
+-		if (!build.campaign && !strcmp(pause_settings_hidden_items[index], PAUSE_NETWORK_ITEM))
+-			continue;
+ 		if (widget != NONE && build.widget_tags[widget] == tag_index)
+ 			return TRUE;
+ 	}
+--- a/tools/port_settings.py
++++ b/tools/port_settings.py
+@@ -303,6 +303,8 @@
+      "Players' names above their heads, the\nscoreboard, and the text chat."),
+     ("STREAMER MODE:", "network_setup/streamer_mode",
+      "Hide offensive words in names and text from\nother players, maps and mods, as stars."),
++    ("CHEATS:", "network_setup/cheats",
++     "Infinite ammo, super jump, god mode and more.\nOnly in games that are not on a network."),
+ ]
+ SCREENS["network_setup/map_sharing"] = {
+     "screen": "map_sharing_settings_screen", "header": _network["header"], "spacing": 30,
+@@ -348,6 +350,29 @@
+     ],
+ }
+ 
++# Network Setup's cheats (source/game/cheats.c): each is on for every tick of
++# a game that is not on a network, and set or cleared at once when changed (in
++# a game too: the pause menu's SETTINGS)
++SCREENS["network_setup/cheats"] = {
++    "screen": "cheats_settings_screen", "header": _network["header"], "spacing": 30,
++    "rows": [
++        ("INFINITE AMMO:", "cheats.infinite_ammo", ON_OFF,
++         "The ammo in reserve never runs out.\nOnly in games that are not on a network.", None),
++        ("BOTTOMLESS CLIP:", "cheats.bottomless_clip", ON_OFF,
++         "The magazine never empties, so you never\nreload.", None),
++        ("SUPER JUMP:", "cheats.super_jump", ON_OFF,
++         "Jump much higher. Falls can kill you unless\nGOD MODE is on.", None),
++        ("GOD MODE:", "cheats.deathless_player", ON_OFF,
++         "You cannot die: not by shots, not by falls.", None),
++        ("ONE-HIT KILLS:", "cheats.omnipotent", ON_OFF,
++         "Your shots kill what they hit in one blow.", None),
++        ("MEDUSA:", "cheats.medusa", ON_OFF,
++         "Enemies that look at you die.", None),
++        ("JETPACK:", "cheats.jetpack", ON_OFF,
++         "You can fly. It can leave a mission stuck:\nsave before you use it.", None),
++    ],
++}
++
+ # Network Setup in a game (the pause menu's SETTINGS: port/linux/game/
+ # menu_tags.c's pause_network_patch): its pages alone, without the rows that
+ # would drop the game (internet play) or are for the main menu (the router,
