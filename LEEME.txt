@@ -1,0 +1,6 @@
+Repositorio Opence-halo-trucos: 3 archivos.
+  .github/workflows/build-android.yml   (el workflow que compila el APK)
+  trucos/trucos.patch                   (los cambios al codigo de OpenCE)
+  trucos/regenerar_menus.py             (genera las pantallas del menu)
+Al subir el workflow, GitHub empieza solo a compilar (30 a 120 minutos).
+El APK queda en la pestana Releases del repositorio.
