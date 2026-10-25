@@ -1,0 +1,106 @@
+name: Compilar OpenCE con trucos (APK)
+
+# Baja el codigo oficial de OpenCE (build 273), le aplica trucos/trucos.patch
+# (la pantalla CHEATS), compila el APK de Android y lo deja en Releases.
+# Los pasos de compilacion son los del workflow oficial de OpenCE.
+
+on:
+  push:
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CI_COMPILER_LAUNCHER: ccache
+  CCACHE_DIR: ${{ github.workspace }}/src/.ccache
+  CCACHE_BASEDIR: ${{ github.workspace }}/src
+  CCACHE_MAXSIZE: 1G
+
+jobs:
+  android:
+    # La imagen del runner trae el SDK y el NDK de Android, un JDK y CMake.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Install the toolchain
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
+          curl -fsSL -o ccache.tar.xz https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
+          sha256sum -c - <<'HASHES'
+          6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  ninja.zip
+          80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  ccache.tar.xz
+          HASHES
+          unzip -q ninja.zip -d "$RUNNER_TEMP/tools" && rm ninja.zip
+          tar -xJf ccache.tar.xz -C "$RUNNER_TEMP/tools" --strip-components=1 ccache-4.10.2-linux-x86_64/ccache && rm ccache.tar.xz
+          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
+
+      - name: Este repositorio (parche y script)
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Codigo oficial de OpenCE build 273
+        uses: actions/checkout@v4
+        with:
+          repository: OpenCommunityEdition/OpenCE
+          ref: build-273
+          path: src
+
+      - name: Aplicar los trucos
+        working-directory: src
+        run: |
+          patch -p1 -l < ../repo/trucos/trucos.patch
+          python3 ../repo/trucos/regenerar_menus.py
+          git status --short
+
+      - uses: actions/cache@v4
+        with:
+          path: src/.ccache
+          key: ccache-android-${{ github.sha }}
+          restore-keys: ccache-android-
+
+      - uses: actions/cache@v4
+        with:
+          path: src/build/android/third_party
+          key: android-third-party-${{ hashFiles('src/tools/android_build.py', 'src/port/android/patches/**') }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('src/port/android/**/*.gradle*', 'src/port/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      # Sin numero de compilacion (env -u GITHUB_REF) el juego no busca
+      # actualizaciones oficiales que pisarian los trucos.
+      - name: Compilar el APK (release)
+        working-directory: src
+        run: env -u GITHUB_REF python3 tools/ci_build.py android release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halo-android-release
+          path: src/dist/halo-android-release
+          retention-days: 7
+
+      - name: Publicar el APK en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp src/dist/halo-android-release/app-release.apk OpenCE-build273-trucos.apk
+          gh release create "apk-${{ github.run_number }}" OpenCE-build273-trucos.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "OpenCE build 273 con trucos (#${{ github.run_number }})" \
+            --notes "APK de OpenCE build 273 con la pantalla CHEATS: Settings > Player Setup > tu perfil > Network Setup > CHEATS. En partida: pausa > SETTINGS > Network Setup > CHEATS." \
+            --latest
