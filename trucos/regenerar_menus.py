@@ -1,4 +1,4 @@
-"""Regenera las pantallas de ajustes de OpenCE (con la pantalla TRUCOS), pone
+"""de Regenera las pantallas de ajustes de OpenCE (con la pantalla TRUCOS), pone
 su titulo y los textos en espanol, y las registra en menus.json y bitmaps.xml.
 Se ejecuta desde la raiz del codigo de OpenCE, despues de aplicar
 trucos.patch (tools/port_settings.py ya trae la pantalla)."""
@@ -23,22 +23,26 @@ for nombre, lineas in ps.settings_files().items():
         nuevos.append(nombre)
     ruta.write_text("\n".join(lineas), encoding="utf-8", newline="")
 
-# 2) el titulo "TRUCOS" (imagen ya dibujada en trucos/header_trucos.png)
-png = "ce/port/main_menu/settings_select/player_setup/player_profile_edit/network_setup/cheats/header_trucos.png"
-bitmap = f"{ps.PE}/network_setup/cheats/header_trucos"
-destino = menus / png
-destino.parent.mkdir(parents=True, exist_ok=True)
-shutil.copyfile(aqui / "header_trucos.png", destino)
-
+# 2) los titulos "TRUCOS" y "HUD" (imagenes ya dibujadas en trucos/)
+carpeta_png = "ce/port/main_menu/settings_select/player_setup/player_profile_edit/network_setup/cheats/"
+titulos = [("header_trucos", f"{ps.PE}/network_setup/cheats/header_trucos"),
+           ("header_hud", f"{ps.PE}/network_setup/cheats/header_hud")]
+pngs = []
 bitmaps_xml = ce / "bitmaps.xml"
 texto = bitmaps_xml.read_text(encoding="utf-8")
-if f'name="{bitmap}"' not in texto:
-    entrada = (f'\t<bitmap name="{bitmap}">\n'
-               f'\t\t<frame png="{png}" width="512" height="64"/>\n'
-               f'\t</bitmap>\n')
-    fin = texto.rindex("</menus>")
-    texto = texto[:fin] + entrada + texto[fin:]
-    bitmaps_xml.write_text(texto, encoding="utf-8", newline="")
+for nombre, bitmap in titulos:
+    png = f"{carpeta_png}{nombre}.png"
+    pngs.append(png)
+    destino = menus / png
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(aqui / f"{nombre}.png", destino)
+    if f'name="{bitmap}"' not in texto:
+        entrada = (f'\t<bitmap name="{bitmap}">\n'
+                   f'\t\t<frame png="{png}" width="512" height="64"/>\n'
+                   f'\t</bitmap>\n')
+        fin = texto.rindex("</menus>")
+        texto = texto[:fin] + entrada + texto[fin:]
+bitmaps_xml.write_text(texto, encoding="utf-8", newline="")
 
 # 3) menus.json: las pantallas nuevas y el titulo
 mj = menus / "menus.json"
@@ -50,8 +54,9 @@ for nombre in nuevos:
     entrada = "ce/" + nombre
     if entrada not in archivos:
         archivos.insert(archivos.index(ancla), entrada)
-if png not in archivos:
-    archivos.insert(bisect.bisect_left(archivos, png), png)
+for png in pngs:
+    if png not in archivos:
+        archivos.insert(bisect.bisect_left(archivos, png), png)
 mj.write_text(json.dumps(datos, indent=1, ensure_ascii=False) + ("\n" if crudo.endswith("\n") else ""),
               encoding="utf-8")
 
@@ -75,7 +80,7 @@ texto = strings_xml.read_text(encoding="utf-8")
 cambios = [
     ('<string text="ABOUT" map="9"/>', '<string text="TRUCOS" map="9"/>'),
     ('<string text="Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:"/>',
-     '<string text="Municion infinita, salto alto,\\nmodo dios, jetpack y mas.\\n\\nProfile:"/>'),
+     '<string text="Trucos, armas y vehiculos,\\ny mover partes del HUD.\\n\\nProfile:"/>'),
 ]
 for viejo, nuevo in cambios:
     assert viejo in texto, "no se encontro el texto: " + viejo
