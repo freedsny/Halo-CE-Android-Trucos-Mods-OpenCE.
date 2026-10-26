@@ -180,16 +180,16 @@
  	}
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -303,6 +303,8 @@
-      "Players' names above their heads, the\nscoreboard, and the text chat."),
-     ("STREAMER MODE:", "network_setup/streamer_mode",
-      "Hide offensive words in names and text from\nother players, maps and mods, as stars."),
-+    ("CHEATS:", "network_setup/cheats",
-+     "Infinite ammo, super jump, god mode and more.\nOnly in games that are not on a network."),
- ]
- SCREENS["network_setup/map_sharing"] = {
-     "screen": "map_sharing_settings_screen", "header": _network["header"], "spacing": 30,
-@@ -348,6 +350,29 @@
+@@ -296,6 +296,8 @@
+ _hud_rows = [row for row in _network["rows"] if row[1] in _hud_settings]
+ _network["rows"] = [row for row in _network["rows"] if row[1] not in _hud_settings]
+ _network["categories"] = [
++    ("TRUCOS:", "network_setup/cheats",
++     "Municion infinita, super salto, modo dios y mas.\nSolo en partidas que no son en red."),
+     ("MAP SHARING:", "network_setup/map_sharing",
+      "Downloading Custom Edition maps you do not have,\nand helping send them to other players.",
+      "desktop android"),
+@@ -348,6 +350,30 @@
      ],
  }
  
@@ -197,22 +197,23 @@
 +# a game that is not on a network, and set or cleared at once when changed (in
 +# a game too: the pause menu's SETTINGS)
 +SCREENS["network_setup/cheats"] = {
-+    "screen": "cheats_settings_screen", "header": _network["header"], "spacing": 30,
++    "screen": "cheats_settings_screen", "header": ("header_trucos", f"{PE}/network_setup/cheats/header_trucos"),
++    "spacing": 30,
 +    "rows": [
-+        ("INFINITE AMMO:", "cheats.infinite_ammo", ON_OFF,
-+         "The ammo in reserve never runs out.\nOnly in games that are not on a network.", None),
-+        ("BOTTOMLESS CLIP:", "cheats.bottomless_clip", ON_OFF,
-+         "The magazine never empties, so you never\nreload.", None),
-+        ("SUPER JUMP:", "cheats.super_jump", ON_OFF,
-+         "Jump much higher. Falls can kill you unless\nGOD MODE is on.", None),
-+        ("GOD MODE:", "cheats.deathless_player", ON_OFF,
-+         "You cannot die: not by shots, not by falls.", None),
-+        ("ONE-HIT KILLS:", "cheats.omnipotent", ON_OFF,
-+         "Your shots kill what they hit in one blow.", None),
++        ("MUNICION INFINITA:", "cheats.infinite_ammo", ON_OFF,
++         "La municion de reserva nunca se acaba.\nSolo en partidas que no son en red.", None),
++        ("SIN RECARGAR:", "cheats.bottomless_clip", ON_OFF,
++         "El cargador nunca se vacia, asi que\nnunca tienes que recargar.", None),
++        ("SUPER SALTO:", "cheats.super_jump", ON_OFF,
++         "Saltas mucho mas alto. Las caidas pueden\nmatarte si el MODO DIOS esta apagado.", None),
++        ("MODO DIOS:", "cheats.deathless_player", ON_OFF,
++         "No puedes morir: ni por disparos ni por caidas.", None),
++        ("MATAR DE UN GOLPE:", "cheats.omnipotent", ON_OFF,
++         "Tus disparos matan de un solo golpe.", None),
 +        ("MEDUSA:", "cheats.medusa", ON_OFF,
-+         "Enemies that look at you die.", None),
++         "Los enemigos que te miran mueren.", None),
 +        ("JETPACK:", "cheats.jetpack", ON_OFF,
-+         "You can fly. It can leave a mission stuck:\nsave before you use it.", None),
++         "Puedes volar. Puede dejar la mision trabada:\nguarda antes de usarlo.", None),
 +    ],
 +}
 +
