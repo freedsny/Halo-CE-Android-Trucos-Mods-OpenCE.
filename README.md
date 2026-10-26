@@ -1,7 +1,10 @@
 # Opence-halo-trucos
 Qué cambia
+
 Título: la pantalla de trucos ahora dice TRUCOS (dibujado igual que los demás títulos del juego) en vez de "NETWORK SETUP".
+
 Español: los nombres y las descripciones quedan así:
+
 Munición infinita
 Sin recargar
 Súper salto (escrito sin tilde)
