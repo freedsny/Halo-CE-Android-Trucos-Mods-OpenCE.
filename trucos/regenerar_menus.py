@@ -55,18 +55,30 @@ if png not in archivos:
 mj.write_text(json.dumps(datos, indent=1, ensure_ascii=False) + ("\n" if crudo.endswith("\n") else ""),
               encoding="utf-8")
 
-# 4) la lista SETTINGS: "NETWORK SETUP" pasa a decir TRUCOS Y RED, con su texto en espanol
+# 4) la lista SETTINGS: el ultimo item (ABOUT) pasa a ser TRUCOS y abre su pantalla
+pe = ps.PE
+lista = ce / "main_menu.settings_select.player_setup.player_profile_edit.xml"
+texto = lista.read_text(encoding="utf-8")
+ancla = f'<widget name="{pe}/about_item"'
+inicio = texto.index(ancla)
+fin = texto.index("</widget>", inicio)
+bloque = texto[inicio:fin]
+viejo = '<on event="left_mouse" run="NULL"/>'
+assert viejo in bloque, "no se encontro el item ABOUT"
+pantalla = f"{pe}/network_setup/cheats/cheats_settings_screen"
+nuevo = (f'<on event="a" open="{pantalla}"/>\n\t\t<on event="start" open="{pantalla}"/>\n'
+         '\t\t<on event="left_mouse" run="mouse emit accept event"/>')
+lista.write_text(texto[:inicio] + bloque.replace(viejo, nuevo) + texto[fin:], encoding="utf-8", newline="")
+
 strings_xml = ce / "strings.xml"
 texto = strings_xml.read_text(encoding="utf-8")
 cambios = [
-    ('<string text="NETWORK SETUP " map="8"/>', '<string text="TRUCOS Y RED" map="8"/>'),
-    ('<string text="Internet play, updates and the\\nmultiplayer HUD.\\n\\nProfile:"/>',
-     '<string text="Trucos (municion infinita, super\\nsalto, modo dios...), juego en\\nlinea y HUD multijugador.\\n\\nProfile:"/>'),
+    ('<string text="ABOUT" map="9"/>', '<string text="TRUCOS" map="9"/>'),
+    ('<string text="Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:"/>',
+     '<string text="Municion infinita, salto alto,\\nmodo dios, jetpack y mas.\\n\\nProfile:"/>'),
 ]
 for viejo, nuevo in cambios:
-    if viejo in texto:
-        texto = texto.replace(viejo, nuevo)
-    else:
-        print("AVISO: no se encontro el texto:", viejo)
+    assert viejo in texto, "no se encontro el texto: " + viejo
+    texto = texto.replace(viejo, nuevo)
 strings_xml.write_text(texto, encoding="utf-8", newline="")
 print("pantallas nuevas:", nuevos)
