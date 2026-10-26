@@ -1,6 +1,6 @@
 name: Compilar OpenCE con trucos (APK)
 
-# Baja el codigo oficial de OpenCE (build 288), le aplica trucos/trucos.patch
+# Baja el codigo oficial de OpenCE (la ultima version), le aplica trucos/trucos.patch
 # (la pantalla CHEATS), compila el APK de Android y lo deja en Releases.
 # Los pasos de compilacion son los del workflow oficial de OpenCE.
 
@@ -9,6 +9,11 @@ on:
     paths-ignore:
       - "**.md"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version de OpenCE (ej. build-288). Vacio = la ultima"
+        required: false
+        default: ""
 
 concurrency:
   group: apk-${{ github.ref }}
@@ -42,16 +47,28 @@ jobs:
           tar -xJf ccache.tar.xz -C "$RUNNER_TEMP/tools" --strip-components=1 ccache-4.10.2-linux-x86_64/ccache && rm ccache.tar.xz
           echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
 
+      - name: Buscar la ultima version de OpenCE
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          ver="$VERSION"
+          if [ -z "$ver" ]; then
+            ver=$(git ls-remote --tags --refs https://github.com/OpenCommunityEdition/OpenCE.git 'build-*' | sed 's#.*refs/tags/##' | sort -V | tail -1)
+          fi
+          echo "Version de OpenCE: $ver"
+          echo "ref=$ver" >> "$GITHUB_OUTPUT"
+
       - name: Este repositorio (parche y script)
         uses: actions/checkout@v4
         with:
           path: repo
 
-      - name: Codigo oficial de OpenCE build 288
+      - name: Codigo oficial de OpenCE (la version elegida)
         uses: actions/checkout@v4
         with:
           repository: OpenCommunityEdition/OpenCE
-          ref: build-288
+          ref: ${{ steps.version.outputs.ref }}
           path: src
 
       - name: Aplicar los trucos
@@ -104,6 +121,6 @@ jobs:
           cp src/dist/halo-android-release/app-release.apk HaloCE-trucos.apk
           gh release create "apk-${{ github.run_number }}" HaloCE-trucos.apk \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Halo C.E con trucos (OpenCE 288) (#${{ github.run_number }})" \
-            --notes "APK de Halo C.E (OpenCE 288) con trucos: Settings > Player Setup > tu perfil > TRUCOS Y RED > TRUCOS. En partida: pausa > SETTINGS > TRUCOS Y RED > TRUCOS." \
+            --title "Halo C.E con trucos - OpenCE ${{ steps.version.outputs.ref }} (#${{ github.run_number }})" \
+            --notes "APK de Halo C.E con trucos (OpenCE ${{ steps.version.outputs.ref }}). Trucos: Settings > Player Setup > tu perfil > TRUCOS. En partida: pausa > SETTINGS > TRUCOS." \
             --latest
