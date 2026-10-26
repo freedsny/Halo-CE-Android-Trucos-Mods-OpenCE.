@@ -1,4 +1,4 @@
-"""de Regenera las pantallas de ajustes de OpenCE (con la pantalla TRUCOS), pone
+"""Regenera las pantallas de ajustes de OpenCE (con la pantalla TRUCOS), pone
 su titulo y los textos en espanol, y las registra en menus.json y bitmaps.xml.
 Se ejecuta desde la raiz del codigo de OpenCE, despues de aplicar
 trucos.patch (tools/port_settings.py ya trae la pantalla)."""
