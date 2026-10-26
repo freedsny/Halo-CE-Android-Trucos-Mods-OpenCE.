@@ -106,7 +106,7 @@
  }
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
-@@ -452,6 +452,41 @@
+@@ -460,6 +460,41 @@
  		"profile starts at The Pillar of Autumn and opens each level as the one\n"
  		"before it is finished, as on the Xbox. Profiles already made keep their\n"
  		"progress; the console's profile_reset_campaign starts one over." },
@@ -150,46 +150,28 @@
  		"Maps played as downloaded ones, besides those map sharing downloaded:\n"
 --- a/port/linux/game/menu_tags.c
 +++ b/port/linux/game/menu_tags.c
-@@ -1819,13 +1819,12 @@
+@@ -1819,15 +1819,14 @@
  #define PAUSE_NETWORK_SCREEN \
  	"main_menu/settings_select/player_setup/player_profile_edit/network_setup/in_game/in_game_network_settings_screen"
  
 -/* Change Name's keyboard and Change Color's pictures are ui.map's, Network
 -Setup is for others' games (shown in co-op: its pages, pause_network_patch),
 -and About is nothing to it */
-+/* Change Name's keyboard and Change Color's pictures are ui.map's, and About
-+is nothing to it. (Network Setup stays in every game: its pages are those of
-+pause_network_patch, and in a game alone its CHEATS) */
++/* Change Name's keyboard and Change Color's pictures are ui.map's, and Network
++Setup is for others' games (shown in co-op: its pages, pause_network_patch).
++About is not hidden: its place is TRUCOS' (the cheats' settings screen) */
  static char const *const pause_settings_hidden_items[] =
  {
  	"main_menu/settings_select/player_setup/player_profile_edit/name_profile_item",
--	PAUSE_NETWORK_ITEM,
+ 	PAUSE_NETWORK_ITEM,
  	"main_menu/settings_select/player_setup/player_profile_edit/color_profile_item",
- 	"main_menu/settings_select/player_setup/player_profile_edit/about_item",
+-	"main_menu/settings_select/player_setup/player_profile_edit/about_item",
  };
-@@ -1964,10 +1963,6 @@
- 	{
- 		long widget = widget_named(pause_settings_hidden_items[index]);
  
--		/* (Network Setup stays in a co-op game, which is a network one or
--		has players beside this one: build.campaign is a game alone) */
--		if (!build.campaign && !strcmp(pause_settings_hidden_items[index], PAUSE_NETWORK_ITEM))
--			continue;
- 		if (widget != NONE && build.widget_tags[widget] == tag_index)
- 			return TRUE;
- 	}
+ /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -296,6 +296,8 @@
- _hud_rows = [row for row in _network["rows"] if row[1] in _hud_settings]
- _network["rows"] = [row for row in _network["rows"] if row[1] not in _hud_settings]
- _network["categories"] = [
-+    ("TRUCOS:", "network_setup/cheats",
-+     "Municion infinita, super salto, modo dios y mas.\nSolo en partidas que no son en red."),
-     ("MAP SHARING:", "network_setup/map_sharing",
-      "Downloading Custom Edition maps you do not have,\nand helping send them to other players.",
-      "desktop android"),
-@@ -348,6 +350,30 @@
+@@ -381,6 +381,30 @@
      ],
  }
  
