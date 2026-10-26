@@ -8,13 +8,14 @@
  #include "game/game_globals.h"
  #include "game/players.h"
  #include "hs/hs.h"
-@@ -195,10 +196,87 @@
+@@ -195,10 +196,129 @@
  	return;
  }
  
 +/* port_config.c's: the cheats' settings (config.toml's [cheats], and the
 +pause menu's SETTINGS, CHEATS) */
 +int config_boolean(const char *name);
++int config_write_boolean(const char *name, int value);
 +unsigned long config_changes(void);
 +
 +/* port: a cheat that the player has on in the settings. Each is on for
@@ -40,7 +41,29 @@
 +	{ "cheats.omnipotent", &cheat.omnipotent, FALSE, FALSE },
 +	{ "cheats.medusa", &cheat.medusa, FALSE, FALSE },
 +	{ "cheats.jetpack", &cheat.jetpack, FALSE, FALSE },
++	{ "cheats.bump_possession", &cheat.bump_possession, FALSE, FALSE },
 +};
++
++/* port: a cheat that is done once when the player turns it on in the settings
++(the weapons, vehicles and powerups near the player, the camouflage). It is put
++back to off at once, so it works as a button; `done` keeps it from being done
++again every tick should the setting not be written back */
++struct cheat_action_setting
++{
++	char const *name;
++	void (*action)(void);
++	boolean done;
++};
++
++static struct cheat_action_setting cheat_action_settings[] =
++{
++	{ "cheats.all_weapons", cheat_all_weapons, FALSE },
++	{ "cheats.all_vehicles", cheat_all_vehicles, FALSE },
++	{ "cheats.all_powerups", cheat_all_powerups, FALSE },
++	{ "cheats.active_camouflage", cheat_active_camouflage, FALSE },
++};
++
++#define NUMBER_OF_CHEAT_ACTION_SETTINGS (sizeof(cheat_action_settings)/sizeof(cheat_action_settings[0]))
 +
 +#define NUMBER_OF_CHEAT_SETTINGS (sizeof(cheat_settings)/sizeof(cheat_settings[0]))
 +
@@ -85,6 +108,25 @@
 +		setting->clear = FALSE;
 +	}
 +
++	for (index = 0; index<(short)NUMBER_OF_CHEAT_ACTION_SETTINGS; index++)
++	{
++		struct cheat_action_setting *action = cheat_action_settings + index;
++
++		if (own_game && config_boolean(action->name))
++		{
++			if (!action->done)
++			{
++				action->done = TRUE;
++				action->action();
++				config_write_boolean(action->name, 0);
++			}
++		}
++		else if (!config_boolean(action->name))
++		{
++			action->done = FALSE;
++		}
++	}
++
 +	return;
 +}
 +
@@ -96,7 +138,7 @@
  	if (cheat.controller_enabled)
  	{
  		short local_player_index;
-@@ -310,6 +388,7 @@
+@@ -310,6 +430,7 @@
  	void)
  {
  	cheats_load();
@@ -106,7 +148,7 @@
  }
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
-@@ -460,6 +460,41 @@
+@@ -460,6 +460,96 @@
  		"profile starts at The Pillar of Autumn and opens each level as the one\n"
  		"before it is finished, as on the Xbox. Profiles already made keep their\n"
  		"progress; the console's profile_reset_campaign starts one over." },
@@ -145,6 +187,61 @@
 +		"true: on at the start of every map of a game that is not on a network, and\n"
 +		"on at once when changed in the game (pause menu, SETTINGS, CHEATS).\n"
 +		"Not in another host's game: its rules." },
++	{ "cheats.bump_possession", _config_boolean, "false", "HALO_CHEATS_BUMP_POSSESSION", _environment_value, _platform_all,
++		"Bump possession: bumping an enemy or a vehicle takes it over.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, TRUCOS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.all_weapons", _config_boolean, "false", "HALO_CHEATS_ALL_WEAPONS", _environment_value, _platform_all,
++		"All weapons: drops every weapon near the player.\n"
++		"true: done once at the next tick of a game that is not on a network (pause\n"
++		"menu, SETTINGS, TRUCOS), then put back to false: it works as a button.\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.all_vehicles", _config_boolean, "false", "HALO_CHEATS_ALL_VEHICLES", _environment_value, _platform_all,
++		"All vehicles: drops every vehicle on the player.\n"
++		"true: done once at the next tick of a game that is not on a network (pause\n"
++		"menu, SETTINGS, TRUCOS), then put back to false: it works as a button.\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.all_powerups", _config_boolean, "false", "HALO_CHEATS_ALL_POWERUPS", _environment_value, _platform_all,
++		"All powerups: drops every powerup near the player.\n"
++		"true: done once at the next tick of a game that is not on a network (pause\n"
++		"menu, SETTINGS, TRUCOS), then put back to false: it works as a button.\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.active_camouflage", _config_boolean, "false", "HALO_CHEATS_ACTIVE_CAMOUFLAGE", _environment_value, _platform_all,
++		"Active camouflage: makes the player invisible.\n"
++		"true: done once at the next tick of a game that is not on a network (pause\n"
++		"menu, SETTINGS, TRUCOS), then put back to false: it works as a button.\n"
++		"Not in another host's game: its rules." },
++	{ "hud.shield_x", _config_integer, "0", "HALO_HUD_SHIELD_X", _environment_value, _platform_all,
++		"Moves the shield part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is right, negative the other way. 0: where the tags put it." },
++	{ "hud.shield_y", _config_integer, "0", "HALO_HUD_SHIELD_Y", _environment_value, _platform_all,
++		"Moves the shield part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is down, negative the other way. 0: where the tags put it." },
++	{ "hud.health_x", _config_integer, "0", "HALO_HUD_HEALTH_X", _environment_value, _platform_all,
++		"Moves the health part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is right, negative the other way. 0: where the tags put it." },
++	{ "hud.health_y", _config_integer, "0", "HALO_HUD_HEALTH_Y", _environment_value, _platform_all,
++		"Moves the health part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is down, negative the other way. 0: where the tags put it." },
++	{ "hud.radar_x", _config_integer, "0", "HALO_HUD_RADAR_X", _environment_value, _platform_all,
++		"Moves the radar part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is right, negative the other way. 0: where the tags put it." },
++	{ "hud.radar_y", _config_integer, "0", "HALO_HUD_RADAR_Y", _environment_value, _platform_all,
++		"Moves the radar part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is down, negative the other way. 0: where the tags put it." },
++	{ "hud.ammo_x", _config_integer, "0", "HALO_HUD_AMMO_X", _environment_value, _platform_all,
++		"Moves the ammo part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is right, negative the other way. 0: where the tags put it." },
++	{ "hud.ammo_y", _config_integer, "0", "HALO_HUD_AMMO_Y", _environment_value, _platform_all,
++		"Moves the ammo part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is down, negative the other way. 0: where the tags put it." },
++	{ "hud.grenades_x", _config_integer, "0", "HALO_HUD_GRENADES_X", _environment_value, _platform_all,
++		"Moves the grenades part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is right, negative the other way. 0: where the tags put it." },
++	{ "hud.grenades_y", _config_integer, "0", "HALO_HUD_GRENADES_Y", _environment_value, _platform_all,
++		"Moves the grenades part of the HUD, in HUD units (the tags' 640x480): positive\n"
++		"is down, negative the other way. 0: where the tags put it." },
  
  	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
  		"Maps played as downloaded ones, besides those map sharing downloaded:\n"
@@ -171,23 +268,56 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -381,6 +381,30 @@
+@@ -381,6 +381,89 @@
      ],
  }
  
 +# Network Setup's cheats (source/game/cheats.c): each is on for every tick of
 +# a game that is not on a network, and set or cleared at once when changed (in
 +# a game too: the pause menu's SETTINGS)
++# TRUCOS (the About item of the SETTINGS list: port/linux/game/menu_tags.c and
++# trucos/regenerar_menus.py): its screens are the cheats' (source/game/cheats.c:
++# each is on for every tick of a game that is not on a network, and set or
++# cleared at once when changed, in a game too), the one-time ones' (put back to
++# off by the game: they work as buttons), and where the HUD's parts are
++# (source/interface/hud_draw.c: hud.<part>_x and hud.<part>_y)
++HUD_STEPS = [-500, -400, -300, -250, -200, -150, -100, -80, -60, -40, -20, 0,
++             20, 40, 60, 80, 100, 150, 200, 250, 300, 400, 500]
++HUD_VALUES = [(f"{step:+d}" if step else "0", str(step)) for step in HUD_STEPS]
++
++
++def _hud_rows(part: str, name: str, help_text: str) -> list:
++    return [
++        (f"{name} HORIZONTAL:", f"hud.{part}_x", HUD_VALUES,
++         f"{help_text}\\nMas es a la derecha, menos a la izquierda. 0: original.", None),
++        (f"{name} VERTICAL:", f"hud.{part}_y", HUD_VALUES,
++         f"{help_text}\\nMas es hacia abajo, menos hacia arriba. 0: original.", None),
++    ]
++
++
 +SCREENS["network_setup/cheats"] = {
 +    "screen": "cheats_settings_screen", "header": ("header_trucos", f"{PE}/network_setup/cheats/header_trucos"),
-+    "spacing": 30,
++    "spacing": 30, "rows": [],
++    "categories": [
++        ("TRUCOS:", "network_setup/cheats_toggles",
++         "Municion infinita, modo dios, super salto y mas.\\nSolo en partidas que no son en red."),
++        ("ARMAS Y VEHICULOS:", "network_setup/cheats_items",
++         "Hace caer armas, vehiculos y powerups cerca de ti,\\no te vuelve invisible. Funcionan como botones."),
++        ("HUD: RADAR Y VIDA:", "network_setup/cheats_hud_1",
++         "Mueve el radar, el escudo y la vida a otro\\nlugar de la pantalla."),
++        ("HUD: MUNICION:", "network_setup/cheats_hud_2",
++         "Mueve la municion y las granadas a otro\\nlugar de la pantalla."),
++    ],
++}
++SCREENS["network_setup/cheats_toggles"] = {
++    "screen": "cheats_toggles_screen", "header": ("header_trucos", f"{PE}/network_setup/cheats/header_trucos"), "spacing": 30,
 +    "rows": [
 +        ("MUNICION INFINITA:", "cheats.infinite_ammo", ON_OFF,
-+         "La municion de reserva nunca se acaba.\nSolo en partidas que no son en red.", None),
++         "La municion de reserva nunca se acaba.\\nSolo en partidas que no son en red.", None),
 +        ("SIN RECARGAR:", "cheats.bottomless_clip", ON_OFF,
-+         "El cargador nunca se vacia, asi que\nnunca tienes que recargar.", None),
++         "El cargador nunca se vacia, asi que\\nnunca tienes que recargar.", None),
 +        ("SUPER SALTO:", "cheats.super_jump", ON_OFF,
-+         "Saltas mucho mas alto. Las caidas pueden\nmatarte si el MODO DIOS esta apagado.", None),
++         "Saltas mucho mas alto. Las caidas pueden\\nmatarte si el MODO DIOS esta apagado.", None),
 +        ("MODO DIOS:", "cheats.deathless_player", ON_OFF,
 +         "No puedes morir: ni por disparos ni por caidas.", None),
 +        ("MATAR DE UN GOLPE:", "cheats.omnipotent", ON_OFF,
@@ -195,10 +325,206 @@
 +        ("MEDUSA:", "cheats.medusa", ON_OFF,
 +         "Los enemigos que te miran mueren.", None),
 +        ("JETPACK:", "cheats.jetpack", ON_OFF,
-+         "Puedes volar. Puede dejar la mision trabada:\nguarda antes de usarlo.", None),
++         "Puedes volar. Puede dejar la mision trabada:\\nguarda antes de usarlo.", None),
++        ("POSEER AL CHOCAR:", "cheats.bump_possession", ON_OFF,
++         "Al chocar con un enemigo o un vehiculo\\nlo controlas.", None),
 +    ],
++}
++SCREENS["network_setup/cheats_items"] = {
++    "screen": "cheats_items_screen", "header": ("header_trucos", f"{PE}/network_setup/cheats/header_trucos"), "spacing": 30,
++    "rows": [
++        ("TODAS LAS ARMAS:", "cheats.all_weapons", ON_OFF,
++         "Ponlo en ON y vuelve al juego: caen todas las armas\\ncerca de ti y esto vuelve solo a OFF.", None),
++        ("TODOS LOS VEHICULOS:", "cheats.all_vehicles", ON_OFF,
++         "Ponlo en ON y vuelve al juego: caen todos los\\nvehiculos sobre ti y esto vuelve solo a OFF.", None),
++        ("TODOS LOS POWERUPS:", "cheats.all_powerups", ON_OFF,
++         "Ponlo en ON y vuelve al juego: caen todos los\\npowerups cerca de ti y esto vuelve solo a OFF.", None),
++        ("CAMUFLAJE ACTIVO:", "cheats.active_camouflage", ON_OFF,
++         "Ponlo en ON y vuelve al juego: te vuelves invisible\\ny esto vuelve solo a OFF.", None),
++    ],
++}
++SCREENS["network_setup/cheats_hud_1"] = {
++    "screen": "cheats_hud_1_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
++    "rows": (_hud_rows("radar", "RADAR", "Donde esta el radar.") +
++             _hud_rows("shield", "ESCUDO", "Donde esta la barra de escudo.") +
++             _hud_rows("health", "VIDA", "Donde esta la barra de vida.")),
++}
++SCREENS["network_setup/cheats_hud_2"] = {
++    "screen": "cheats_hud_2_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
++    "rows": (_hud_rows("ammo", "MUNICION", "Donde esta la municion del arma.") +
++             _hud_rows("grenades", "GRANADAS", "Donde estan las granadas.")),
 +}
 +
  # Network Setup in a game (the pause menu's SETTINGS: port/linux/game/
  # menu_tags.c's pause_network_patch): its pages alone, without the rows that
  # would drop the game (internet play) or are for the main menu (the router,
+--- a/source/interface/hud_draw.c
++++ b/source/interface/hud_draw.c
+@@ -1002,6 +1002,57 @@
+ 	return real_argb_color_to_pixel32(&color);
+ }
+ 
++/* port: where the player has moved the parts of the HUD (settings, TRUCOS, HUD):
++hud.<part>_x and hud.<part>_y, in HUD units, read again when a setting changes.
++They move the part whatever corner it is anchored to: positive x is right and
++positive y is down */
++long config_integer(const char *name);
++unsigned long config_changes(void);
++
++short hud_port_part = _hud_port_part_none;
++
++static real hud_port_offset(
++	short part,
++	short axis)
++{
++	static char const *const names[NUMBER_OF_HUD_PORT_PARTS][2] =
++	{
++		{ NULL, NULL },
++		{ "hud.shield_x", "hud.shield_y" },
++		{ "hud.health_x", "hud.health_y" },
++		{ "hud.radar_x", "hud.radar_y" },
++		{ "hud.ammo_x", "hud.ammo_y" },
++		{ "hud.grenades_x", "hud.grenades_y" },
++	};
++	static real offsets[NUMBER_OF_HUD_PORT_PARTS][2];
++	static unsigned long changes = 0;
++	static boolean read = FALSE;
++	real result = 0.0f;
++
++	if (part>0 && part<NUMBER_OF_HUD_PORT_PARTS && axis>=0 && axis<2)
++	{
++		if (!read || changes!=config_changes())
++		{
++			short part_index, axis_index;
++
++			read = TRUE;
++			changes = config_changes();
++			for (part_index = 1; part_index<NUMBER_OF_HUD_PORT_PARTS; part_index++)
++			{
++				for (axis_index = 0; axis_index<2; axis_index++)
++				{
++					long value = config_integer(names[part_index][axis_index]);
++
++					offsets[part_index][axis_index] = (real)PIN(value, -2000, 2000);
++				}
++			}
++		}
++		result = offsets[part][axis];
++	}
++
++	return result;
++}
++
+ void hud_calculate_point(
+ 	short local_player_index,
+ 	struct hud_absolute_placement_definition const *absolute_placement,
+@@ -1070,6 +1121,12 @@
+ 			placement->offset.y * scale;
+ 	}
+ 
++	if (hud_port_part!=_hud_port_part_none)
++	{
++		point.x += hud_port_offset(hud_port_part, 0) * scale;
++		point.y += hud_port_offset(hud_port_part, 1) * scale;
++	}
++
+ 	if (bitmap_data)
+ 	{
+ 		switch (corner)
+--- a/source/interface/hud_draw.h
++++ b/source/interface/hud_draw.h
+@@ -71,6 +71,22 @@
+ pixel32 real_alpha_intensity_to_pixel32(
+ 	real alpha,
+ 	real intensity);
++/* port: the parts of the HUD the player can move (the HUD settings, hud.*_x and
++hud.*_y). hud_port_part is the part being drawn: hud_unit.c and hud_weapon.c set
++it around each part, and hud_calculate_point moves what is drawn in it */
++enum
++{
++	_hud_port_part_none,
++	_hud_port_part_shield,
++	_hud_port_part_health,
++	_hud_port_part_motion_sensor,
++	_hud_port_part_weapon,
++	_hud_port_part_grenades,
++	NUMBER_OF_HUD_PORT_PARTS
++};
++
++extern short hud_port_part;
++
+ void hud_calculate_point(
+ 	short local_player_index,
+ 	struct hud_absolute_placement_definition const *absolute_placement,
+--- a/source/interface/hud_unit.c
++++ b/source/interface/hud_unit.c
+@@ -811,6 +811,7 @@
+ 
+ 	unit_hud_shield_meter_mapper_tick();
+ 	unit_hud_outline_mapper_tick();
++	hud_port_part = _hud_port_part_none;
+ 
+ 	if (player->local_player_index == render.local_player_index &&
+ 		player->unit_index != NONE)
+@@ -909,6 +910,7 @@
+ 				struct unit_hud_interface_definition *hud_definition =
+ 					unit_hud_interface_definition_get(unit_hud_indices[unit_count]);
+ 
++				hud_port_part = _hud_port_part_shield;
+ 				if (hud_definition->background.interface_bitmap.index != NONE)
+ 				{
+ 					short draw_flags = 0;
+@@ -1049,6 +1051,7 @@
+ 					}
+ 				}
+ 
++				hud_port_part = _hud_port_part_health;
+ 				if (!TEST_FLAG(
+ 					unit_hud_globals->script_flags,
+ 					_hud_panel_health_dont_show_bit))
+@@ -1140,6 +1143,7 @@
+ 					hud_state->last_body_vitality = hud_unit->object.body_vitality;
+ 				}
+ 
++				hud_port_part = _hud_port_part_motion_sensor;
+ 				if (unit_count == 0 &&
+ 					!TEST_FLAG(
+ 						unit_hud_globals->script_flags,
+@@ -1219,6 +1223,7 @@
+ 					}
+ 				}
+ 
++				hud_port_part = _hud_port_part_none;
+ 				{
+ 					struct auxilary_panel_definition *auxilary_panel = &hud_definition->auxilary_panel;
+ 					word overlay_type_flags = game_engine_has_teams() != FALSE;
+--- a/source/interface/hud_weapon.c
++++ b/source/interface/hud_weapon.c
+@@ -2099,6 +2099,7 @@
+ 				weapon_index,
+ 				hud_index,
+ 				&weapon_state);
++			hud_port_part = _hud_port_part_weapon;
+ 			render_weapon_hud(
+ 				hud_index,
+ 				player->local_player_index,
+@@ -2107,6 +2108,7 @@
+ 				NULL,
+ 				NULL,
+ 				NULL);
++			hud_port_part = _hud_port_part_none;
+ 			play_weapon_hud_sounds(
+ 				player->local_player_index,
+ 				hud_index,
+@@ -2124,9 +2126,11 @@
+ 			&weapon_state);
+ 	}
+ 
++	hud_port_part = _hud_port_part_grenades;
+ 	render_grenade_hud(
+ 		player->local_player_index,
+ 		player->unit_index);
++	hud_port_part = _hud_port_part_none;
+ 	if (player->local_player_index != NONE)
+ 	{
+ 		get_hud_state(player->local_player_index)->last_weapon_index = weapon_index;
