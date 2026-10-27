@@ -1,6 +1,6 @@
 --- a/source/game/cheats.c
 +++ b/source/game/cheats.c
-@@ -54,6 +54,7 @@
+@@ -54,11 +54,13 @@
  #include "cache/cache_files.h"
  #include "camera/director.h"
  #include "camera/observer.h"
@@ -8,7 +8,21 @@
  #include "game/game_globals.h"
  #include "game/players.h"
  #include "hs/hs.h"
-@@ -195,10 +196,129 @@
+ #include "input/input.h"
+ #include "interface/terminal.h"
++#include "items/equipment_definitions.h"
+ #include "items/weapon_definitions.h"
+ #include "main/console.h"
+ #include "math/real_math.h"
+@@ -67,6 +69,7 @@
+ #include "scenario/scenario.h"
+ #include "tag_files/tag_groups.h"
+ #include "units/units.h"
++#include "units/vehicle_definitions.h"
+ 
+ /* ---------- constants */
+ 
+@@ -195,10 +198,202 @@
  	return;
  }
  
@@ -44,6 +58,79 @@
 +	{ "cheats.bump_possession", &cheat.bump_possession, FALSE, FALSE },
 +};
 +
++/* port: the powerups and the vehicles of the globals tag's lists, and when
++the map's globals tag has none (the campaign's, often) every powerup (equipment)
++or vehicle tag of the map, as cheat_all_weapons does with the weapons */
++static void cheat_objects(
++	struct tag_reference *references,
++	short reference_count);
++
++static void cheat_all_of_group(
++	unsigned long group)
++{
++	struct tag_reference references[MAXIMUM_CHEATS];
++	struct tag_iterator iterator;
++	long tag_index;
++	short reference_count = 0;
++
++	tag_iterator_new(&iterator, group);
++	for (tag_index = tag_iterator_next(&iterator);
++		tag_index!=NONE && reference_count<NUMBEROF(references);
++		tag_index = tag_iterator_next(&iterator))
++	{
++		references[reference_count].index = tag_index;
++		reference_count++;
++	}
++
++	cheat_objects(references, reference_count);
++
++	return;
++}
++
++static void cheat_port_all_powerups(
++	void)
++{
++	struct game_globals *globals = scenario_get_game_globals();
++
++	if (TAG_BLOCK_TRY_AND_GET_ELEMENT(&globals->cheat_powerups, 0, struct tag_reference))
++	{
++		cheat_all_powerups();
++	}
++	else
++	{
++		cheat_all_of_group(EQUIPMENT_DEFINITION_TAG);
++	}
++
++	return;
++}
++
++static void cheat_port_all_vehicles(
++	void)
++{
++	struct game_globals *globals = scenario_get_game_globals();
++	boolean listed = FALSE;
++
++	if (globals->multiplayer_information.count > 0 && globals->multiplayer_information.address)
++	{
++		struct game_globals_multiplayer_information *information =
++			TAG_BLOCK_GET_ELEMENT(&globals->multiplayer_information, 0,
++				struct game_globals_multiplayer_information);
++
++		listed = TAG_BLOCK_TRY_AND_GET_ELEMENT(&information->vehicles, 0, struct tag_reference)!=NULL;
++	}
++
++	if (listed)
++	{
++		cheat_all_vehicles();
++	}
++	else
++	{
++		cheat_all_of_group(VEHICLE_DEFINITION_TAG);
++	}
++
++	return;
++}
++
 +/* port: a cheat that is done once when the player turns it on in the settings
 +(the weapons, vehicles and powerups near the player, the camouflage). It is put
 +back to off at once, so it works as a button; `done` keeps it from being done
@@ -58,8 +145,8 @@
 +static struct cheat_action_setting cheat_action_settings[] =
 +{
 +	{ "cheats.all_weapons", cheat_all_weapons, FALSE },
-+	{ "cheats.all_vehicles", cheat_all_vehicles, FALSE },
-+	{ "cheats.all_powerups", cheat_all_powerups, FALSE },
++	{ "cheats.all_vehicles", cheat_port_all_vehicles, FALSE },
++	{ "cheats.all_powerups", cheat_port_all_powerups, FALSE },
 +	{ "cheats.active_camouflage", cheat_active_camouflage, FALSE },
 +};
 +
@@ -138,7 +225,7 @@
  	if (cheat.controller_enabled)
  	{
  		short local_player_index;
-@@ -310,6 +430,7 @@
+@@ -310,6 +505,7 @@
  	void)
  {
  	cheats_load();
@@ -268,7 +355,7 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -381,6 +381,89 @@
+@@ -381,6 +381,90 @@
      ],
  }
  
@@ -281,8 +368,9 @@
 +# cleared at once when changed, in a game too), the one-time ones' (put back to
 +# off by the game: they work as buttons), and where the HUD's parts are
 +# (source/interface/hud_draw.c: hud.<part>_x and hud.<part>_y)
-+HUD_STEPS = [-500, -400, -300, -250, -200, -150, -100, -80, -60, -40, -20, 0,
-+             20, 40, 60, 80, 100, 150, 200, 250, 300, 400, 500]
++HUD_STEPS = [-1000, -900, -800, -700, -600, -500, -400, -300, -250, -200, -150, -100,
++             -80, -60, -40, -20, 0, 20, 40, 60, 80, 100, 150, 200, 250, 300, 400,
++             500, 600, 700, 800, 900, 1000]
 +HUD_VALUES = [(f"{step:+d}" if step else "0", str(step)) for step in HUD_STEPS]
 +
 +
