@@ -22,7 +22,7 @@
  
  /* ---------- constants */
  
-@@ -195,10 +198,276 @@
+@@ -195,10 +198,277 @@
  	return;
  }
  
@@ -56,6 +56,7 @@
 +	{ "cheats.medusa", &cheat.medusa, FALSE, FALSE },
 +	{ "cheats.jetpack", &cheat.jetpack, FALSE, FALSE },
 +	{ "cheats.bump_possession", &cheat.bump_possession, FALSE, FALSE },
++	{ "cheats.reflexive_damage_effects", &cheat.reflexive_damage_effects, FALSE, FALSE },
 +};
 +
 +/* port: the powerups and the vehicles of the globals tag's lists, and when
@@ -299,7 +300,7 @@
  	if (cheat.controller_enabled)
  	{
  		short local_player_index;
-@@ -310,6 +579,7 @@
+@@ -310,6 +580,7 @@
  	void)
  {
  	cheats_load();
@@ -309,7 +310,7 @@
  }
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
-@@ -460,6 +460,126 @@
+@@ -460,6 +460,132 @@
  		"profile starts at The Pillar of Autumn and opens each level as the one\n"
  		"before it is finished, as on the Xbox. Profiles already made keep their\n"
  		"progress; the console's profile_reset_campaign starts one over." },
@@ -350,6 +351,12 @@
 +		"Not in another host's game: its rules." },
 +	{ "cheats.bump_possession", _config_boolean, "false", "HALO_CHEATS_BUMP_POSSESSION", _environment_value, _platform_all,
 +		"Bump possession: bumping an enemy or a vehicle takes it over.\n"
++		"true: on at the start of every map of a game that is not on a network, and\n"
++		"on at once when changed in the game (pause menu, SETTINGS, TRUCOS).\n"
++		"Not in another host's game: its rules." },
++	{ "cheats.reflexive_damage_effects", _config_boolean, "false", "HALO_CHEATS_REFLEXIVE_DAMAGE_EFFECTS", _environment_value, _platform_all,
++		"Reflexive damage effects: when other creatures are damaged, the player feels\n"
++		"the damage's screen effects (shake, flash) as if it were hit.\n"
 +		"true: on at the start of every map of a game that is not on a network, and\n"
 +		"on at once when changed in the game (pause menu, SETTINGS, TRUCOS).\n"
 +		"Not in another host's game: its rules." },
@@ -459,7 +466,7 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -381,6 +381,109 @@
+@@ -381,6 +381,138 @@
      ],
  }
  
@@ -509,6 +516,8 @@
 +         "Mueve la municion del arma a otro lugar de la pantalla."),
 +        ("HUD: GRANADAS:", "network_setup/cheats_hud_grenades",
 +         "Mueve las granadas a otro lugar de la pantalla."),
++        ("AJUSTES:", "network_setup/cheats_ajustes",
++         "Brillo (HDR), bots, desbloquear niveles y\\nanimaciones mejoradas."),
 +    ],
 +}
 +SCREENS["network_setup/cheats_toggles"] = {
@@ -530,6 +539,8 @@
 +         "Puedes volar. Puede dejar la mision trabada:\\nguarda antes de usarlo.", None),
 +        ("POSEER AL CHOCAR:", "cheats.bump_possession", ON_OFF,
 +         "Al chocar con un enemigo o un vehiculo\\nlo controlas.", None),
++        ("SENTIR EL DANO DE OTROS:", "cheats.reflexive_damage_effects", ON_OFF,
++         "Cuando otros reciben dano, tu pantalla reacciona\\n(sacudida, destellos) como si te golpearan a ti.", None),
 +    ],
 +}
 +SCREENS["network_setup/cheats_items"] = {
@@ -564,6 +575,31 @@
 +SCREENS["network_setup/cheats_hud_grenades"] = {
 +    "screen": "cheats_hud_grenades_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
 +    "rows": _hud_rows("grenades", "GRANADAS", "Donde estan las granadas."),
++}
++
++SCREENS["network_setup/cheats_ajustes"] = {
++    "screen": "cheats_ajustes_screen", "header": ("header_ajustes", f"{PE}/network_setup/cheats/header_ajustes"), "spacing": 30,
++    "rows": [
++        ("HDR (MAS BRILLO):", "display.hdr", ON_OFF,
++         "Necesario para la exposicion. Si el juego se ve\\noscuro, activalo. Puede bajar la fluidez.", None),
++        ("EXPOSICION HDR:", "display.hdr_exposure",
++         [(v, v) for v in ("0.5", "0.75", "1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0", "4.0")],
++         "Brillo de la imagen con HDR: mas es mas claro.\\n1.0 es lo normal.", None),
++        ("CURVA DE TONOS HDR:", "display.hdr_tone_mapping",
++         [("NEUTRAL", "neutral"), ("ACES", "aces"), ("REINHARD", "reinhard")],
++         "Neutral: la imagen como es. ACES: mas contraste.\\nReinhard: mas suave y mas oscura.", None),
++        ("DESBLOQUEAR NIVELES:", "game.unlock_all_levels", ON_OFF,
++         "Solo para perfiles nuevos: empiezan con todos los\\nniveles abiertos. Los perfiles viejos no cambian.", None),
++        ("ANIMACIONES MEJORADAS:", "game.enhanced_animations", ON_OFF,
++         "Las piernas siguen moviendose al lanzar granadas\\ny los pasajeros sueltan el agarre al recargar.", None),
++        ("BOTS (CANTIDAD):", "bots.count", [(str(n), str(n)) for n in range(0, 16)],
++         "Solo en partidas locales de Slayer a pantalla\\ndividida. 0: ninguno.", None),
++        ("BOTS (NIVEL):", "bots.skill",
++         [("FACIL", "easy"), ("NORMAL", "normal"), ("HEROICO", "heroic"), ("LEGENDARIO", "legendary")],
++         "Que tan bien juegan los bots.", None),
++        ("BOTS (EQUIPOS):", "bots.teams", [("REPARTIDOS", "even"), ("CONTRA MI", "against")],
++         "Repartidos: en los dos equipos. Contra mi: todos\\nen el equipo contrario.", None),
++    ],
 +}
 +
  # Network Setup in a game (the pause menu's SETTINGS: port/linux/game/
