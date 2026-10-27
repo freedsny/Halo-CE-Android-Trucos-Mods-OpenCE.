@@ -22,7 +22,7 @@
  
  /* ---------- constants */
  
-@@ -195,10 +198,202 @@
+@@ -195,10 +198,276 @@
  	return;
  }
  
@@ -64,6 +64,8 @@
 +static void cheat_objects(
 +	struct tag_reference *references,
 +	short reference_count);
++static long cheat_player_index(
++	void);
 +
 +static void cheat_all_of_group(
 +	unsigned long group)
@@ -104,29 +106,101 @@
 +	return;
 +}
 +
++/* port: the objects around the player in a ring that grows with their number,
++`spacing` apart (the vehicles are big: cheat_objects' 1.5 world units ring puts
++them one on another) */
++#define MAXIMUM_CHEAT_VEHICLES 48
++
++static void cheat_objects_spread(
++	struct tag_reference *references,
++	short reference_count,
++	real spacing,
++	real minimum_radius)
++{
++	long player_index = cheat_player_index();
++
++	if (player_index!=NONE && reference_count>0)
++	{
++		struct player_datum *player = player_get(player_index);
++		real_point3d origin;
++		real_vector3d forward, up;
++		real radius = reference_count*spacing/(2*_pi);
++		real start_angle;
++		short reference_index;
++
++		if (radius<minimum_radius)
++		{
++			radius = minimum_radius;
++		}
++
++		object_get_origin(player->unit_index, &origin);
++		object_get_orientation(player->unit_index, &forward, &up);
++		start_angle = arctangent(forward.i, forward.j);
++
++		for (reference_index = 0; reference_index<reference_count; reference_index++)
++		{
++			if (references[reference_index].index!=NONE)
++			{
++				struct object_placement_data data;
++				real angle = start_angle + reference_index*(2*_pi/reference_count);
++
++				object_placement_data_new(&data, references[reference_index].index, NONE);
++
++				data.position.x = cosine(angle)*radius+origin.x;
++				data.position.y = sine(angle)*radius+origin.y;
++				data.position.z = origin.z+0.8f;
++				data.forward = forward;
++				data.up = up;
++
++				object_new(&data);
++			}
++		}
++	}
++
++	return;
++}
++
 +static void cheat_port_all_vehicles(
 +	void)
 +{
 +	struct game_globals *globals = scenario_get_game_globals();
-+	boolean listed = FALSE;
++	struct tag_reference references[MAXIMUM_CHEAT_VEHICLES];
++	short reference_count = 0;
 +
 +	if (globals->multiplayer_information.count > 0 && globals->multiplayer_information.address)
 +	{
 +		struct game_globals_multiplayer_information *information =
 +			TAG_BLOCK_GET_ELEMENT(&globals->multiplayer_information, 0,
 +				struct game_globals_multiplayer_information);
++		short index;
 +
-+		listed = TAG_BLOCK_TRY_AND_GET_ELEMENT(&information->vehicles, 0, struct tag_reference)!=NULL;
++		for (index = 0; index<information->vehicles.count && reference_count<MAXIMUM_CHEAT_VEHICLES; index++)
++		{
++			struct tag_reference *reference = TAG_BLOCK_TRY_AND_GET_ELEMENT(&information->vehicles, index, struct tag_reference);
++
++			if (reference && reference->index!=NONE)
++			{
++				references[reference_count++] = *reference;
++			}
++		}
 +	}
 +
-+	if (listed)
++	if (reference_count==0)
 +	{
-+		cheat_all_vehicles();
++		struct tag_iterator iterator;
++		long tag_index;
++
++		tag_iterator_new(&iterator, VEHICLE_DEFINITION_TAG);
++		for (tag_index = tag_iterator_next(&iterator);
++			tag_index!=NONE && reference_count<MAXIMUM_CHEAT_VEHICLES;
++			tag_index = tag_iterator_next(&iterator))
++		{
++			references[reference_count].index = tag_index;
++			reference_count++;
++		}
 +	}
-+	else
-+	{
-+		cheat_all_of_group(VEHICLE_DEFINITION_TAG);
-+	}
++
++	cheat_objects_spread(references, reference_count, 8.0f, 6.0f);
 +
 +	return;
 +}
@@ -225,7 +299,7 @@
  	if (cheat.controller_enabled)
  	{
  		short local_player_index;
-@@ -310,6 +505,7 @@
+@@ -310,6 +579,7 @@
  	void)
  {
  	cheats_load();
@@ -235,7 +309,7 @@
  }
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
-@@ -460,6 +460,96 @@
+@@ -460,6 +460,126 @@
  		"profile starts at The Pillar of Autumn and opens each level as the one\n"
  		"before it is finished, as on the Xbox. Profiles already made keep their\n"
  		"progress; the console's profile_reset_campaign starts one over." },
@@ -329,6 +403,36 @@
 +	{ "hud.grenades_y", _config_integer, "0", "HALO_HUD_GRENADES_Y", _environment_value, _platform_all,
 +		"Moves the grenades part of the HUD, in HUD units (the tags' 640x480): positive\n"
 +		"is down, negative the other way. 0: where the tags put it." },
++	{ "hud.shield_fx", _config_integer, "0", "HALO_HUD_SHIELD_FX", _environment_value, _platform_all,
++		"The fine adjustment of hud.shield_x, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.shield_fy", _config_integer, "0", "HALO_HUD_SHIELD_FY", _environment_value, _platform_all,
++		"The fine adjustment of hud.shield_y, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.health_fx", _config_integer, "0", "HALO_HUD_HEALTH_FX", _environment_value, _platform_all,
++		"The fine adjustment of hud.health_x, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.health_fy", _config_integer, "0", "HALO_HUD_HEALTH_FY", _environment_value, _platform_all,
++		"The fine adjustment of hud.health_y, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.radar_fx", _config_integer, "0", "HALO_HUD_RADAR_FX", _environment_value, _platform_all,
++		"The fine adjustment of hud.radar_x, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.radar_fy", _config_integer, "0", "HALO_HUD_RADAR_FY", _environment_value, _platform_all,
++		"The fine adjustment of hud.radar_y, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.ammo_fx", _config_integer, "0", "HALO_HUD_AMMO_FX", _environment_value, _platform_all,
++		"The fine adjustment of hud.ammo_x, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.ammo_fy", _config_integer, "0", "HALO_HUD_AMMO_FY", _environment_value, _platform_all,
++		"The fine adjustment of hud.ammo_y, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.grenades_fx", _config_integer, "0", "HALO_HUD_GRENADES_FX", _environment_value, _platform_all,
++		"The fine adjustment of hud.grenades_x, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.grenades_fy", _config_integer, "0", "HALO_HUD_GRENADES_FY", _environment_value, _platform_all,
++		"The fine adjustment of hud.grenades_y, added to it: so 625 is 600 and 25.\n"
++		"In HUD units (the tags' 640x480). 0: none." },
  
  	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
  		"Maps played as downloaded ones, besides those map sharing downloaded:\n"
@@ -355,7 +459,7 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -381,6 +381,90 @@
+@@ -381,6 +381,109 @@
      ],
  }
  
@@ -368,19 +472,23 @@
 +# cleared at once when changed, in a game too), the one-time ones' (put back to
 +# off by the game: they work as buttons), and where the HUD's parts are
 +# (source/interface/hud_draw.c: hud.<part>_x and hud.<part>_y)
-+HUD_STEPS = [-1000, -900, -800, -700, -600, -500, -400, -300, -250, -200, -150, -100,
-+             -80, -60, -40, -20, 0, 20, 40, 60, 80, 100, 150, 200, 250, 300, 400,
-+             500, 600, 700, 800, 900, 1000]
++HUD_STEPS = list(range(-1000, 1001, 100))
++HUD_FINE_STEPS = list(range(-50, 51, 5))
 +HUD_VALUES = [(f"{step:+d}" if step else "0", str(step)) for step in HUD_STEPS]
++HUD_FINE_VALUES = [(f"{step:+d}" if step else "0", str(step)) for step in HUD_FINE_STEPS]
 +
 +
 +def _hud_rows(part: str, name: str, help_text: str) -> list:
-+    return [
-+        (f"{name} HORIZONTAL:", f"hud.{part}_x", HUD_VALUES,
-+         f"{help_text}\\nMas es a la derecha, menos a la izquierda. 0: original.", None),
-+        (f"{name} VERTICAL:", f"hud.{part}_y", HUD_VALUES,
-+         f"{help_text}\\nMas es hacia abajo, menos hacia arriba. 0: original.", None),
-+    ]
++    # each axis has a coarse row (by 100) and a fine one (by 5, added to it): 625
++    # is 600 and +25
++    rows = []
++    for axis, label, more in (("x", "HORIZONTAL", "Mas = derecha, menos = izquierda."),
++                              ("y", "VERTICAL", "Mas = abajo, menos = arriba.")):
++        rows.append((f"{name} {label}:", f"hud.{part}_{axis}", HUD_VALUES,
++                     f"{help_text} De 100 en 100.\\n{more} 0: original.", None))
++        rows.append((f"{name} {label} FINO:", f"hud.{part}_f{axis}", HUD_FINE_VALUES,
++                     f"Ajuste fino de 5 en 5, se suma al anterior.\\nAsi 625 es 600 y +25.", None))
++    return rows
 +
 +
 +SCREENS["network_setup/cheats"] = {
@@ -391,10 +499,16 @@
 +         "Municion infinita, modo dios, super salto y mas.\\nSolo en partidas que no son en red."),
 +        ("ARMAS Y VEHICULOS:", "network_setup/cheats_items",
 +         "Hace caer armas, vehiculos y powerups cerca de ti,\\no te vuelve invisible. Funcionan como botones."),
-+        ("HUD: RADAR Y VIDA:", "network_setup/cheats_hud_1",
-+         "Mueve el radar, el escudo y la vida a otro\\nlugar de la pantalla."),
-+        ("HUD: MUNICION:", "network_setup/cheats_hud_2",
-+         "Mueve la municion y las granadas a otro\\nlugar de la pantalla."),
++        ("HUD: RADAR:", "network_setup/cheats_hud_radar",
++         "Mueve el radar a otro lugar de la pantalla."),
++        ("HUD: ESCUDO:", "network_setup/cheats_hud_shield",
++         "Mueve la barra de escudo a otro lugar de la pantalla."),
++        ("HUD: VIDA:", "network_setup/cheats_hud_health",
++         "Mueve la barra de vida a otro lugar de la pantalla."),
++        ("HUD: MUNICION:", "network_setup/cheats_hud_ammo",
++         "Mueve la municion del arma a otro lugar de la pantalla."),
++        ("HUD: GRANADAS:", "network_setup/cheats_hud_grenades",
++         "Mueve las granadas a otro lugar de la pantalla."),
 +    ],
 +}
 +SCREENS["network_setup/cheats_toggles"] = {
@@ -431,16 +545,25 @@
 +         "Ponlo en ON y vuelve al juego: te vuelves invisible\\ny esto vuelve solo a OFF.", None),
 +    ],
 +}
-+SCREENS["network_setup/cheats_hud_1"] = {
-+    "screen": "cheats_hud_1_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
-+    "rows": (_hud_rows("radar", "RADAR", "Donde esta el radar.") +
-+             _hud_rows("shield", "ESCUDO", "Donde esta la barra de escudo.") +
-+             _hud_rows("health", "VIDA", "Donde esta la barra de vida.")),
++SCREENS["network_setup/cheats_hud_radar"] = {
++    "screen": "cheats_hud_radar_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
++    "rows": _hud_rows("radar", "RADAR", "Donde esta el radar."),
 +}
-+SCREENS["network_setup/cheats_hud_2"] = {
-+    "screen": "cheats_hud_2_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
-+    "rows": (_hud_rows("ammo", "MUNICION", "Donde esta la municion del arma.") +
-+             _hud_rows("grenades", "GRANADAS", "Donde estan las granadas.")),
++SCREENS["network_setup/cheats_hud_shield"] = {
++    "screen": "cheats_hud_shield_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
++    "rows": _hud_rows("shield", "ESCUDO", "Donde esta la barra de escudo."),
++}
++SCREENS["network_setup/cheats_hud_health"] = {
++    "screen": "cheats_hud_health_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
++    "rows": _hud_rows("health", "VIDA", "Donde esta la barra de vida."),
++}
++SCREENS["network_setup/cheats_hud_ammo"] = {
++    "screen": "cheats_hud_ammo_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
++    "rows": _hud_rows("ammo", "MUNICION", "Donde esta la municion del arma."),
++}
++SCREENS["network_setup/cheats_hud_grenades"] = {
++    "screen": "cheats_hud_grenades_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
++    "rows": _hud_rows("grenades", "GRANADAS", "Donde estan las granadas."),
 +}
 +
  # Network Setup in a game (the pause menu's SETTINGS: port/linux/game/
@@ -448,12 +571,13 @@
  # would drop the game (internet play) or are for the main menu (the router,
 --- a/source/interface/hud_draw.c
 +++ b/source/interface/hud_draw.c
-@@ -1002,6 +1002,57 @@
+@@ -1002,6 +1002,59 @@
  	return real_argb_color_to_pixel32(&color);
  }
  
 +/* port: where the player has moved the parts of the HUD (settings, TRUCOS, HUD):
-+hud.<part>_x and hud.<part>_y, in HUD units, read again when a setting changes.
++hud.<part>_x and hud.<part>_y plus the fine ones, hud.<part>_fx and hud.<part>_fy, in HUD
++units, read again when a setting changes.
 +They move the part whatever corner it is anchored to: positive x is right and
 +positive y is down */
 +long config_integer(const char *name);
@@ -465,14 +589,14 @@
 +	short part,
 +	short axis)
 +{
-+	static char const *const names[NUMBER_OF_HUD_PORT_PARTS][2] =
++	static char const *const names[NUMBER_OF_HUD_PORT_PARTS][4] =
 +	{
-+		{ NULL, NULL },
-+		{ "hud.shield_x", "hud.shield_y" },
-+		{ "hud.health_x", "hud.health_y" },
-+		{ "hud.radar_x", "hud.radar_y" },
-+		{ "hud.ammo_x", "hud.ammo_y" },
-+		{ "hud.grenades_x", "hud.grenades_y" },
++		{ NULL, NULL, NULL, NULL },
++		{ "hud.shield_x", "hud.shield_y", "hud.shield_fx", "hud.shield_fy" },
++		{ "hud.health_x", "hud.health_y", "hud.health_fx", "hud.health_fy" },
++		{ "hud.radar_x", "hud.radar_y", "hud.radar_fx", "hud.radar_fy" },
++		{ "hud.ammo_x", "hud.ammo_y", "hud.ammo_fx", "hud.ammo_fy" },
++		{ "hud.grenades_x", "hud.grenades_y", "hud.grenades_fx", "hud.grenades_fy" },
 +	};
 +	static real offsets[NUMBER_OF_HUD_PORT_PARTS][2];
 +	static unsigned long changes = 0;
@@ -491,7 +615,8 @@
 +			{
 +				for (axis_index = 0; axis_index<2; axis_index++)
 +				{
-+					long value = config_integer(names[part_index][axis_index]);
++					long value = config_integer(names[part_index][axis_index])+
++						config_integer(names[part_index][axis_index+2]);
 +
 +					offsets[part_index][axis_index] = (real)PIN(value, -2000, 2000);
 +				}
@@ -506,7 +631,7 @@
  void hud_calculate_point(
  	short local_player_index,
  	struct hud_absolute_placement_definition const *absolute_placement,
-@@ -1070,6 +1121,12 @@
+@@ -1070,6 +1123,12 @@
  			placement->offset.y * scale;
  	}
  
