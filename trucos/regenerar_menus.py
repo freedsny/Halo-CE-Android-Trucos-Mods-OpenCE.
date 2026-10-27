@@ -23,10 +23,11 @@ for nombre, lineas in ps.settings_files().items():
         nuevos.append(nombre)
     ruta.write_text("\n".join(lineas), encoding="utf-8", newline="")
 
-# 2) los titulos "TRUCOS" y "HUD" (imagenes ya dibujadas en trucos/)
+# 2) los titulos "TRUCOS", "HUD" y "AJUSTES" (imagenes ya dibujadas en trucos/)
 carpeta_png = "ce/port/main_menu/settings_select/player_setup/player_profile_edit/network_setup/cheats/"
 titulos = [("header_trucos", f"{ps.PE}/network_setup/cheats/header_trucos"),
-           ("header_hud", f"{ps.PE}/network_setup/cheats/header_hud")]
+           ("header_hud", f"{ps.PE}/network_setup/cheats/header_hud"),
+           ("header_ajustes", f"{ps.PE}/network_setup/cheats/header_ajustes")]
 pngs = []
 bitmaps_xml = ce / "bitmaps.xml"
 texto = bitmaps_xml.read_text(encoding="utf-8")
