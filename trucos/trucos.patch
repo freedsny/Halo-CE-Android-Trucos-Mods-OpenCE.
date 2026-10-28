@@ -466,7 +466,7 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -381,6 +381,138 @@
+@@ -381,6 +381,141 @@
      ],
  }
  
@@ -580,6 +580,9 @@
 +SCREENS["network_setup/cheats_ajustes"] = {
 +    "screen": "cheats_ajustes_screen", "header": ("header_ajustes", f"{PE}/network_setup/cheats/header_ajustes"), "spacing": 30,
 +    "rows": [
++        ("IDIOMA DEL JUEGO:", "game.language",
++         [("INGLES", ""), ("ESPANOL", "es"), ("FRANCES", "fr"), ("ALEMAN", "de"), ("ITALIANO", "it"), ("JAPONES", "ja")],
++         "Idioma de los textos del juego. Cambia al reiniciar.\\nDepende de tu copia: una europea trae es e it.", None),
 +        ("HDR (MAS BRILLO):", "display.hdr", ON_OFF,
 +         "Necesario para la exposicion. Si el juego se ve\\noscuro, activalo. Puede bajar la fluidez.", None),
 +        ("EXPOSICION HDR:", "display.hdr_exposure",
