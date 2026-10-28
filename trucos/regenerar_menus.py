@@ -135,6 +135,28 @@ texto = traducir(texto, "profile_edit_descriptions", [
 ])
 strings_xml.write_text(texto, encoding="utf-8", newline="")
 
+# 5b) los otros bloques de textos (botones, multijugador, seleccion de perfil), en el orden de cada bloque
+import re
+import textos_es
+
+
+def traducir_orden(texto, nombre, nuevos):
+    inicio = texto.index(f'<strings name="{nombre}"')
+    fin = texto.index("</strings>", inicio)
+    cuenta = iter(nuevos)
+
+    def cambiar(m):
+        nuevo = next(cuenta)
+        return m.group(0) if nuevo is None else f'<string text="{nuevo}"'.replace("\n", "\\n")
+
+    return texto[:inicio] + re.sub(r'<string text="[^"]*"', cambiar, texto[inicio:fin]) + texto[fin:]
+
+
+texto = strings_xml.read_text(encoding="utf-8")
+for nombre, (tipo, nuevos) in textos_es.BLOQUES.items():
+    texto = traducir_orden(texto, nombre, nuevos)
+strings_xml.write_text(texto, encoding="utf-8", newline="")
+
 # 6) las palabras del menu principal y el titulo de la pantalla de perfil, dibujadas en espanol
 # (si faltan pillow, numpy o scipy, el menu queda en ingles y solo se avisa)
 try:
@@ -148,6 +170,11 @@ try:
     menu_es.header("AJUSTES DEL PERFIL", fuente).save(
         ce / "shell/main_menu/settings_select/player_setup/player_profile_edit/header_edit_profile_settings__0.png",
         optimize=True)
+    for carpeta, nombre, palabra in textos_es.ITEMS:
+        for estado in (0, 1):
+            menu_es.item(palabra, estado, fuente).save(principal / carpeta / f"{nombre}__{estado}.png", optimize=True)
+    for ruta, titulo in textos_es.TITULOS:
+        menu_es.header(titulo, fuente).save(principal / ruta, optimize=True)
     print("menu en espanol: dibujado")
 except ImportError as error:
     print("AVISO: el menu queda en ingles, falta:", error)
