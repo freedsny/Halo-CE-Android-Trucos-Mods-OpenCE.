@@ -71,11 +71,17 @@ jobs:
           ref: ${{ steps.version.outputs.ref }}
           path: src
 
+      # Para dibujar el menu en espanol (si falla, el menu queda en ingles)
+      - name: Dependencias del menu en espanol
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pil python3-numpy python3-scipy || echo "::warning::No se pudieron instalar las dependencias, el menu queda en ingles"
+
       - name: Aplicar los trucos
         working-directory: src
         run: |
           patch -p1 -l < ../repo/trucos/trucos.patch
-          python3 ../repo/trucos/regenerar_menus.py
+          /usr/bin/python3 ../repo/trucos/regenerar_menus.py
           # El nombre de la app en el celular: Halo C.E
           sed -i 's#<string name="app_name">Halo</string>#<string name="app_name">Halo C.E</string>#' port/android/app/src/main/res/values/strings.xml
           grep -n 'app_name' port/android/app/src/main/res/values/strings.xml
