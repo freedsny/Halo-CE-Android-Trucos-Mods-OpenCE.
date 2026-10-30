@@ -452,14 +452,6 @@
  
  	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
  		"Maps played as downloaded ones, besides those map sharing downloaded:\n"
-@@ -1815,6 +1950,7 @@
- 	{ "display.resolution_scaling", { "native", "original", NULL }, NULL },
- 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
- 	{ "display.hud_button_style", { "classic", "gems", "menu_gems", NULL }, NULL },
-+	{ "guide.mode", { "off", "ally", "enemy", "flag", NULL }, NULL },
- 	{ "display.menus", { "pc", "xbox", NULL }, NULL },
- 	{ "display.player_names", { "all", "allies", "enemies", "none", NULL }, NULL },
- 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, NULL },
 --- a/port/linux/game/menu_tags.c
 +++ b/port/linux/game/menu_tags.c
 @@ -1819,15 +1819,14 @@

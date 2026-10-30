@@ -136,6 +136,23 @@ texto = traducir(texto, "profile_edit_descriptions", [
 ])
 strings_xml.write_text(texto, encoding="utf-8", newline="")
 
+# 4b) la lista de palabras de guide.mode (TRUCOS, GUIA) en port_config.c: va aqui y no en el
+# parche, porque la linea vecina cambia entre versiones de OpenCE
+config_c = pathlib.Path("port/linux/src/port_config.c")
+fuente_c = config_c.read_text(encoding="utf-8")
+palabras = '\t{ "guide.mode", { "off", "ally", "enemy", "flag", NULL }, NULL },\n'
+if '"guide.mode", {' not in fuente_c:
+    for punto in ('\t{ "display.hud_button_style", {', "config_words[] =\n{\n"):
+        i = fuente_c.find(punto)
+        if i != -1:
+            if punto.startswith("config_words"):
+                i += len(punto)
+            fuente_c = fuente_c[:i] + palabras + fuente_c[i:]
+            config_c.write_text(fuente_c, encoding="utf-8", newline="")
+            break
+    else:
+        print("AVISO: no se encontro donde poner la lista de palabras de guide.mode")
+
 # 5b) los otros bloques de textos (botones, multijugador, seleccion de perfil), en el orden de cada bloque
 import re
 import textos_es
@@ -154,8 +171,8 @@ def traducir_orden(texto, nombre, nuevos):
 
 
 texto = strings_xml.read_text(encoding="utf-8")
-for nombre, (tipo, nuevos) in textos_es.BLOQUES.items():
-    texto = traducir_orden(texto, nombre, nuevos)
+for nombre, (tipo, textos_nuevos) in textos_es.BLOQUES.items():
+    texto = traducir_orden(texto, nombre, textos_nuevos)
 strings_xml.write_text(texto, encoding="utf-8", newline="")
 
 # 6) las palabras del menu principal y el titulo de la pantalla de perfil, dibujadas en espanol
