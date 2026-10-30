@@ -310,7 +310,7 @@
  }
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
-@@ -460,6 +460,132 @@
+@@ -460,6 +460,141 @@
  		"profile starts at The Pillar of Autumn and opens each level as the one\n"
  		"before it is finished, as on the Xbox. Profiles already made keep their\n"
  		"progress; the console's profile_reset_campaign starts one over." },
@@ -380,6 +380,15 @@
 +		"true: done once at the next tick of a game that is not on a network (pause\n"
 +		"menu, SETTINGS, TRUCOS), then put back to false: it works as a button.\n"
 +		"Not in another host's game: its rules." },
++	{ "guide.mode", _config_string, "\"off\"", "HALO_GUIDE_MODE", _environment_value, _platform_all,
++		"The guide arrow (pause menu, SETTINGS, TRUCOS, GUIA), drawn like the scripts'\n"
++		"markers, with the distance in meters: \"off\", \"ally\" (the nearest ally),\n"
++		"\"enemy\" (the nearest enemy) or \"flag\" (the map's flag guide.flag_tens + guide.flag_ones)." },
++	{ "guide.flag_tens", _config_integer, "0", "HALO_GUIDE_FLAG_TENS", _environment_value, _platform_all,
++		"With guide.mode \"flag\": the tens of the number of the map's cutscene flag the\n"
++		"arrow points to (1 is the first). 0 with guide.flag_ones 0: none." },
++	{ "guide.flag_ones", _config_integer, "0", "HALO_GUIDE_FLAG_ONES", _environment_value, _platform_all,
++		"With guide.mode \"flag\": the ones of the number of the cutscene flag." },
 +	{ "hud.shield_x", _config_integer, "0", "HALO_HUD_SHIELD_X", _environment_value, _platform_all,
 +		"Moves the shield part of the HUD, in HUD units (the tags' 640x480): positive\n"
 +		"is right, negative the other way. 0: where the tags put it." },
@@ -443,6 +452,14 @@
  
  	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
  		"Maps played as downloaded ones, besides those map sharing downloaded:\n"
+@@ -1815,6 +1950,7 @@
+ 	{ "display.resolution_scaling", { "native", "original", NULL }, NULL },
+ 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
+ 	{ "display.hud_button_style", { "classic", "gems", "menu_gems", NULL }, NULL },
++	{ "guide.mode", { "off", "ally", "enemy", "flag", NULL }, NULL },
+ 	{ "display.menus", { "pc", "xbox", NULL }, NULL },
+ 	{ "display.player_names", { "all", "allies", "enemies", "none", NULL }, NULL },
+ 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, NULL },
 --- a/port/linux/game/menu_tags.c
 +++ b/port/linux/game/menu_tags.c
 @@ -1819,15 +1819,14 @@
@@ -466,7 +483,7 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -381,6 +381,141 @@
+@@ -381,6 +381,156 @@
      ],
  }
  
@@ -516,6 +533,8 @@
 +         "Mueve la municion del arma a otro lugar de la pantalla."),
 +        ("HUD: GRANADAS:", "network_setup/cheats_hud_grenades",
 +         "Mueve las granadas a otro lugar de la pantalla."),
++        ("GUIA:", "network_setup/cheats_guia",
++         "Una flecha con los metros que te indica el camino:\\nhacia un aliado, un enemigo o una bandera del mapa."),
 +        ("AJUSTES:", "network_setup/cheats_ajustes",
 +         "Brillo (HDR), bots, desbloquear niveles y\\nanimaciones mejoradas."),
 +    ],
@@ -602,6 +621,19 @@
 +         "Que tan bien juegan los bots.", None),
 +        ("BOTS (EQUIPOS):", "bots.teams", [("REPARTIDOS", "even"), ("CONTRA MI", "against")],
 +         "Repartidos: en los dos equipos. Contra mi: todos\\nen el equipo contrario.", None),
++    ],
++}
++
++SCREENS["network_setup/cheats_guia"] = {
++    "screen": "cheats_guia_screen", "header": ("header_guia", f"{PE}/network_setup/cheats/header_guia"), "spacing": 30,
++    "rows": [
++        ("FLECHA GUIA:", "guide.mode",
++         [("APAGADA", "off"), ("ALIADO CERCANO", "ally"), ("ENEMIGO CERCANO", "enemy"), ("BANDERA DEL MAPA", "flag")],
++         "Una flecha con los metros, como los marcadores del juego.\\nAliado o enemigo: el mas cercano. Bandera: la del numero de abajo.", None),
++        ("BANDERA (DECENAS):", "guide.flag_tens", [(str(n), str(n)) for n in range(0, 100, 10)],
++         "Solo con BANDERA DEL MAPA. Las banderas del mapa se\\ncuentan desde 1: decenas mas unidades, 0 es ninguna.", None),
++        ("BANDERA (UNIDADES):", "guide.flag_ones", [(str(n), str(n)) for n in range(0, 10)],
++         "Ejemplo: decenas 20 y unidades 3 es la bandera 23.\\nPrueba numeros hasta ver la flecha donde quieres ir.", None),
 +    ],
 +}
 +
@@ -780,3 +812,145 @@
  	if (player->local_player_index != NONE)
  	{
  		get_hud_state(player->local_player_index)->last_weapon_index = weapon_index;
+--- a/source/interface/hud_nav_points.c
++++ b/source/interface/hud_nav_points.c
+@@ -101,6 +101,7 @@
+ #include "cseries/cseries.h"
+ #include "cseries/errors.h"
+ #include "game_state.h"
++#include "game/game_allegiance.h"
+ #include "game/game_engine.h"
+ #include "game/players.h"
+ #include "networking/network_connection.h"
+@@ -807,6 +808,122 @@
+ 	return;
+ }
+ 
++/* port: the guide arrow (TRUCOS, GUIA). The player picks what it points to: the
++nearest ally, the nearest enemy, or a numbered flag of the map (the scenario's
++cutscene flags, which its scripts use for their own markers). It is drawn like the
++scripts' markers (the arrow, the distance in meters, the edge of the screen when it
++is behind), and does not use their four places */
++long config_integer(const char *name);
++const char *config_string(const char *name);
++unsigned long config_changes(void);
++
++#define MAXIMUM_GUIDE_CHEAT_FLAGS 99
++/* the allegiance table's teams (game_allegiance.c's NUMBER_OF_GAME_TEAMS) */
++#define GUIDE_GAME_TEAMS 10
++
++static boolean hud_port_guide_target(
++	long unit_index,
++	real_point3d *target,
++	long *target_object_index)
++{
++	static unsigned long changes = 0;
++	static boolean read = FALSE;
++	static short mode = 0; /* 0 off, 1 ally, 2 enemy, 3 flag */
++	static long flag_number = 0;
++	boolean found = FALSE;
++
++	if (!read || changes!=config_changes())
++	{
++		char const *word = config_string("guide.mode");
++
++		read = TRUE;
++		changes = config_changes();
++		mode = !strcmp(word, "ally") ? 1 : !strcmp(word, "enemy") ? 2 : !strcmp(word, "flag") ? 3 : 0;
++		flag_number = config_integer("guide.flag_tens") + config_integer("guide.flag_ones");
++	}
++
++	*target_object_index = NONE;
++	if (mode==3)
++	{
++		struct scenario *scenario = global_scenario_get();
++
++		if (flag_number>0 && flag_number<=MAXIMUM_GUIDE_CHEAT_FLAGS && flag_number<=scenario->cutscene_flags.count)
++		{
++			*target = TAG_BLOCK_GET_ELEMENT(&scenario->cutscene_flags, flag_number-1, struct scenario_cutscene_flag)->position;
++			found = TRUE;
++		}
++	}
++	else if (mode==1 || mode==2)
++	{
++		struct object_iterator iterator;
++		real_point3d origin;
++		short team = object_get(unit_index)->object.owner_team_index;
++		long best_index = NONE;
++		real best_distance_squared = 0.f;
++
++		object_get_origin(unit_index, &origin);
++		object_iterator_new(&iterator, _object_mask_biped, 0);
++		while (object_iterator_next(&iterator))
++		{
++			struct object_datum *object = object_get(iterator.index);
++
++			/* (an ally is any living unit that is not an enemy: the marines are not always
++			allied to the player's team by the allegiance table, but are not its enemies) */
++			if (iterator.index!=unit_index && !TEST_FLAG(object->object.damage_flags, _object_dead_bit) &&
++				VALID_INDEX(object->object.owner_team_index, GUIDE_GAME_TEAMS) &&
++				(mode==2) == (game_team_is_enemy(team, object->object.owner_team_index)!=FALSE))
++			{
++				real_point3d position;
++				real distance_squared;
++
++				object_get_origin(iterator.index, &position);
++				distance_squared = distance_squared3d(&origin, &position);
++				/* an ally next to the player is already in sight */
++				if ((mode==2 || distance_squared>16.f) && (best_index==NONE || distance_squared<best_distance_squared))
++				{
++					best_index = iterator.index;
++					best_distance_squared = distance_squared;
++				}
++			}
++		}
++
++		if (best_index!=NONE)
++		{
++			real radius;
++
++			object_get_bounding_sphere(best_index, target, &radius);
++			*target_object_index = best_index;
++			found = TRUE;
++		}
++	}
++
++	return found;
++}
++
++static void hud_port_guide_render(
++	short local_player_index)
++{
++	long player_index = local_player_get_player_index(local_player_index);
++	long unit_index = player_index==NONE ? NONE : player_get(player_index)->unit_index;
++	real_point3d target;
++	long target_object_index;
++
++	if (unit_index!=NONE && hud_globals->waypoint.arrows.count>0 &&
++		hud_port_guide_target(unit_index, &target, &target_object_index))
++	{
++		real_point3d head_position;
++
++		unit_get_head_position(unit_index, &head_position);
++		custom_render_nav_point(
++			local_player_index,
++			&target,
++			0,
++			hud_get_nav_point_render_type(local_player_index, &head_position, &target, target_object_index));
++	}
++
++	return;
++}
++
+ void hud_render_nav_points(
+ 	short local_player_index)
+ {
+@@ -899,6 +1016,8 @@
+ 				nav_point->nav_index,
+ 				nav_point->screen_type);
+ 		}
++
++		hud_port_guide_render(local_player_index);
+ 	}
+ 
+ 	game_engine_render_nav_points(local_player_index);
