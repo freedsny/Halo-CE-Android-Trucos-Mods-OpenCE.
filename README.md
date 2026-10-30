@@ -57,6 +57,9 @@ Los trucos **solo funcionan en partidas que no son en red**. En el juego de otro
 ### HUD movible
 En **TRUCOS > HUD** hay una pantalla para cada parte: radar, escudo, vida, munición y granadas. Cada una se mueve en horizontal y vertical con un ajuste **grueso** (de 100 en 100, hasta ±1000) y uno **fino** (de 5 en 5, se suma al grueso): por ejemplo, 625 es 600 y +25. Un número positivo mueve a la derecha o hacia abajo; 0 deja cada parte donde el juego la pone. La mira no se puede mover.
 
+### Guía
+En **TRUCOS > GUIA** hay una **flecha guía** con la distancia en metros, dibujada como los marcadores del juego: apunta al **aliado más cercano**, al **enemigo más cercano** o a una **bandera numerada del mapa** (las banderas son puntos que usan los scripts de cada nivel). Apunta en línea recta, no por el camino.
+
 ### Ajustes
 En **TRUCOS > AJUSTES**: brillo con **HDR** (activarlo y subir la exposición ayuda cuando el juego se ve oscuro; puede bajar la fluidez), desbloquear todos los niveles de la campaña (solo para perfiles nuevos), animaciones mejoradas y bots para partidas locales de Slayer a pantalla dividida.
 
@@ -90,5 +93,6 @@ Si OpenCE cambia las partes que toca el parche, la compilación puede fallar en 
 ## Créditos y licencia
 
 - **OpenCE** y todo el código del juego: [OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE), bajo la licencia **GNU AGPL v3**. Los cambios de este repositorio se comparten bajo esa misma licencia.
+
 - Menú de trucos en español, HUD movible y compilación automática: **Freed** ([@freedsny](https://github.com/freedsny)).
 - Halo: Combat Evolved © Microsoft Corporation. Sin datos del juego incluidos.
