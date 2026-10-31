@@ -140,9 +140,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp src/dist/halo-android-release/app-release.apk HaloCE-trucos.apk
-          gh release create "halo-ce-$(date +%Y%m%d-%H%M)" HaloCE-trucos.apk \
+          APK="HaloCE-trucos-${{ steps.version.outputs.ref }}.apk"
+          cp src/dist/halo-android-release/app-release.apk "$APK"
+          gh release create "halo-ce-$(date +%Y%m%d-%H%M)" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Halo C.E con trucos - OpenCE ${{ steps.version.outputs.ref }} (#${{ github.run_number }})" \
-            --notes "APK de Halo C.E con trucos (OpenCE ${{ steps.version.outputs.ref }}). Trucos: Settings > Player Setup > tu perfil > TRUCOS. En partida: pausa > SETTINGS > TRUCOS." \
+            --notes "APK de Halo C.E con trucos (OpenCE ${{ steps.version.outputs.ref }}). Trucos: AJUSTES > tu perfil > TRUCOS. En partida: pausa > AJUSTES > TRUCOS." \
             --latest

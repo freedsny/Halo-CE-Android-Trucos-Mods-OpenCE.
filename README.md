@@ -64,7 +64,7 @@ En **TRUCOS > AJUSTES**:
 El APK se compila solo con **GitHub Actions** a partir del código oficial de OpenCE, al que se le aplica el parche (`trucos/trucos.patch`).
 
 1. Entra a la pestaña **Releases** (Lanzamientos) de este repositorio.
-2. Descarga el `HaloCE-trucos.apk` de la versión más reciente (marcada como "Latest").
+2. Descarga el APK de la versión más reciente (marcada como "Latest"). Su nombre lleva la versión de OpenCE con la que se compiló, por ejemplo `HaloCE-trucos-build-335.apk`.
 3. Instálalo en tu celular (puede pedirte permitir instalar apps de fuentes desconocidas).
 
 Para compilar una versión nueva: **Actions > Compilar OpenCE con trucos (APK) > Run workflow**. Por defecto usa la última versión de OpenCE; también puedes escribir una específica, por ejemplo `build-335`.
