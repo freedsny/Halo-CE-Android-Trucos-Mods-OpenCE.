@@ -69,6 +69,14 @@ El APK se compila solo con **GitHub Actions** a partir del código oficial de Op
 
 Para compilar una versión nueva: **Actions > Compilar OpenCE con trucos (APK) > Run workflow**. Por defecto usa la última versión de OpenCE; también puedes escribir una específica, por ejemplo `build-335`.
 
+### Actualización automática
+Cada día, GitHub revisa si OpenCE publicó una versión nueva (**Actions > Vigilar versiones nuevas de OpenCE**). Si la hay, compila y publica el APK solo, sin que tengas que hacer nada.
+
+Si una compilación falla (por ejemplo, porque una versión nueva de OpenCE cambió algo que toca el parche), se abre un aviso en **Issues** con el enlace al error. Mientras ese aviso esté abierto, no se vuelve a intentar sola; se cierra cuando el parche quede arreglado.
+
+### Versiones de prueba
+Los cambios nuevos se pueden probar primero en la rama **`pruebas`**. Lo que se compila desde ahí sale en **Releases** marcado como **pre-lanzamiento**, con un nombre como `HaloCE-trucos-PRUEBA-build-335.apk`, y no reemplaza la versión principal. Cuando la prueba sale bien, el cambio pasa a la rama `main`.
+
 ## Cómo está hecho este repositorio
 
 Este repositorio **no es un fork** del código de OpenCE: solo guarda los cambios.
@@ -76,17 +84,19 @@ Este repositorio **no es un fork** del código de OpenCE: solo guarda los cambio
 | Archivo | Para qué sirve |
 |---|---|
 | `.github/workflows/build-android.yml` | Descarga OpenCE, aplica los trucos, compila y publica el APK |
+| `.github/workflows/vigilar-opence.yml` | Revisa cada día si hay una versión nueva de OpenCE y la compila |
 | `trucos/trucos.patch` | Los cambios al código de OpenCE: trucos, flecha guía, HUD y menús |
 | `trucos/regenerar_menus.py` | Genera las pantallas del menú, las registra y las pasa al español |
 | `trucos/textos_es.py` | Los textos en español de los menús |
 | `trucos/menu_es.py` | Dibuja en español las palabras del menú principal y los títulos |
 | `trucos/header_*.png` | Los títulos TRUCOS, HUD, AJUSTES y GUIA |
+| `LICENSE` | La licencia GNU AGPL v3, la misma de OpenCE |
 
 Si OpenCE cambia las partes que toca el parche, la compilación puede fallar en el paso "Aplicar los trucos" y habrá que ajustar el parche.
 
 ## Créditos y licencia
 
-- **OpenCE** y todo el código del juego: [OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE), bajo la licencia **GNU AGPL v3**. Los cambios de este repositorio se comparten bajo esa misma licencia.
+- **OpenCE** y todo el código del juego: [OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE), bajo la licencia **GNU AGPL v3**. Los cambios de este repositorio se comparten bajo esa misma licencia (ver [LICENSE](LICENSE)).
 - Trucos y menús en español, flecha guía, HUD movible y compilación automática: **freddVelp** ([@freedsny](https://github.com/freedsny)).
 - La flecha de objetivo usa solo los nombres de los scripts de cada misión como referencia; no incluye scripts ni datos del juego.
 - Halo: Combat Evolved © Microsoft Corporation.

@@ -1,0 +1,36 @@
+name: Vigilar versiones nuevas de OpenCE
+
+# Cada dia revisa si OpenCE publico una version nueva. Si la hay y todavia no
+# esta compilada, lanza la compilacion del APK con esa version.
+# (GitHub pausa las tareas programadas si el repositorio pasa 60 dias sin cambios.)
+
+on:
+  schedule:
+    - cron: "17 11 * * *" # todos los dias a las 6:17 a. m. de Colombia (11:17 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+  issues: read
+
+jobs:
+  vigilar:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Comparar la ultima version de OpenCE con la ultima compilada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ultima=$(git ls-remote --tags --refs https://github.com/OpenCommunityEdition/OpenCE.git 'build-*' | sed 's#.*refs/tags/##' | sort -V | tail -1)
+          compilada=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.name' 2>/dev/null | grep -o 'build-[0-9]*' | head -1)
+          echo "Ultima version de OpenCE: $ultima"
+          echo "Ultima version compilada: ${compilada:-ninguna}"
+          if [ -n "$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search '"La compilacion fallo" in:title' --json number --jq '.[].number')" ]; then
+            echo "Hay un aviso de error abierto: no se compila hasta que se resuelva."
+          elif [ -n "$ultima" ] && [ "$ultima" != "$compilada" ]; then
+            gh workflow run build-android.yml --repo "$GITHUB_REPOSITORY" --ref main -f version="$ultima"
+            echo "Compilacion lanzada con $ultima"
+          else
+            echo "Ya esta compilada la ultima version. Nada que hacer."
+          fi

@@ -21,6 +21,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
 
 env:
   CI_COMPILER_LAUNCHER: ccache
@@ -141,9 +142,36 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK="HaloCE-trucos-${{ steps.version.outputs.ref }}.apk"
-          cp src/dist/halo-android-release/app-release.apk "$APK"
-          gh release create "halo-ce-$(date +%Y%m%d-%H%M)" "$APK" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Halo C.E con trucos - OpenCE ${{ steps.version.outputs.ref }} (#${{ github.run_number }})" \
-            --notes "APK de Halo C.E con trucos (OpenCE ${{ steps.version.outputs.ref }}). Trucos: AJUSTES > tu perfil > TRUCOS. En partida: pausa > AJUSTES > TRUCOS." \
-            --latest
+          NOTAS="APK de Halo C.E con trucos (OpenCE ${{ steps.version.outputs.ref }}). Trucos: AJUSTES > tu perfil > TRUCOS. En partida: pausa > AJUSTES > TRUCOS."
+          CAMBIOS=$(cd repo && git log -1 --format='%s%n%n%b' | grep -v '^Co-Authored-By\|^Claude-Session' | sed '/./,$!d')
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            cp src/dist/halo-android-release/app-release.apk "$APK"
+            gh release create "halo-ce-$(date +%Y%m%d-%H%M)" "$APK" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Halo C.E con trucos - OpenCE ${{ steps.version.outputs.ref }} (#${{ github.run_number }})" \
+              --notes "$(printf '%s\n\n## Cambios\n%s' "$NOTAS" "$CAMBIOS")" \
+              --latest
+          else
+            APK="HaloCE-trucos-PRUEBA-${{ steps.version.outputs.ref }}.apk"
+            cp src/dist/halo-android-release/app-release.apk "$APK"
+            gh release create "prueba-$(date +%Y%m%d-%H%M)" "$APK" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "PRUEBA ($GITHUB_REF_NAME) - OpenCE ${{ steps.version.outputs.ref }} (#${{ github.run_number }})" \
+              --notes "$(printf 'Version de PRUEBA de la rama %s: puede tener errores.\n\n%s\n\n## Cambios\n%s' "$GITHUB_REF_NAME" "$NOTAS" "$CAMBIOS")" \
+              --prerelease
+          fi
+
+      # Si algo falla (por ejemplo, una version nueva de OpenCE que rompe el parche),
+      # abre un aviso en Issues con el enlace al error. Uno solo a la vez.
+      - name: Avisar del error
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITULO="La compilacion fallo"
+          if [ -z "$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITULO\" in:title" --json number --jq '.[].number')" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITULO" --body "$(printf 'La compilacion de la rama %s con OpenCE %s fallo.\n\nError: %s/%s/actions/runs/%s' "$GITHUB_REF_NAME" "${{ steps.version.outputs.ref }}" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+          else
+            echo "Ya hay un aviso abierto"
+          fi
