@@ -175,6 +175,26 @@ for nombre, (tipo, textos_nuevos) in textos_es.BLOQUES.items():
     texto = traducir_orden(texto, nombre, textos_nuevos)
 strings_xml.write_text(texto, encoding="utf-8", newline="")
 
+# 5c) las pantallas de ajustes de OpenCE (Video, Audio, Controles, Raton, Mandos y
+# Red): sus textos y los valores de sus opciones, en espanol (no las de TRUCOS)
+import glob as _glob
+
+
+def _valores(m):
+    palabras = [textos_es.VALORES.get(p, p) for p in m.group(1).split("|")]
+    return 'strings="' + "|".join(palabras) + '"'
+
+
+for archivo in _glob.glob(str(ce / "main_menu.settings_select.player_setup.player_profile_edit.*.xml")):
+    if "network_setup.cheats" in archivo:
+        continue
+    contenido = pathlib.Path(archivo).read_text(encoding="utf-8")
+    nuevo = re.sub(r'<string text="([^"]*)"',
+                   lambda m: '<string text="' + textos_es.AJUSTES.get(m.group(1), m.group(1)) + '"', contenido)
+    nuevo = re.sub(r'strings="([^"]*)"', _valores, nuevo)
+    if nuevo != contenido:
+        pathlib.Path(archivo).write_text(nuevo, encoding="utf-8", newline="")
+
 # 6) las palabras del menu principal y el titulo de la pantalla de perfil, dibujadas en espanol
 # (si faltan pillow, numpy o scipy, el menu queda en ingles y solo se avisa)
 try:
@@ -192,6 +212,8 @@ try:
         for estado in (0, 1):
             menu_es.item(palabra, estado, fuente).save(principal / carpeta / f"{nombre}__{estado}.png", optimize=True)
     for ruta, titulo in textos_es.TITULOS:
+        menu_es.header(titulo, fuente).save(principal / ruta, optimize=True)
+    for ruta, titulo in textos_es.TITULOS_AJUSTES:
         menu_es.header(titulo, fuente).save(principal / ruta, optimize=True)
     print("menu en espanol: dibujado")
 except ImportError as error:
