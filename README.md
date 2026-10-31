@@ -41,7 +41,13 @@ En **TRUCOS > GUIA** hay una **flecha** con la distancia en metros, dibujada com
 - **Objetivo de la misión**: en la campaña, la zona a la que la misión espera que llegues para avanzar. La flecha lee en vivo qué está esperando la misión, así que cambia sola cuando avanzas o cambia el objetivo, y funciona al cargar una partida guardada. Está preparada para las diez misiones de la campaña.
 - **Aliado más cercano** o **enemigo más cercano**.
 
-La flecha apunta en línea recta hacia la siguiente zona, no por el camino. Si en un momento la misión no espera que llegues a ningún lugar (por ejemplo, mientras tienes que eliminar enemigos), la flecha no aparece.
+**Funciona como un GPS**: no apunta a través de las paredes. Usa el mismo buscador de caminos que usan los marines y los Covenant para moverse por el mapa, y apunta a la **siguiente esquina, puerta o rampa** del camino. Los metros son la distancia hasta el objetivo final.
+
+- **Flecha doble (⌄⌄)**: es el GPS, el camino a seguir.
+- **Rombo (◆)**: no encontró camino y apunta en línea recta. Pasa cuando el objetivo está en otra parte del mapa que todavía no está cargada (por ejemplo, afuera mientras estás dentro de un edificio) o arriba de un ascensor.
+- Cuando el objetivo está muy lejos, el GPS calcula solo la primera parte del camino.
+
+Si en un momento la misión no espera que llegues a ningún lugar (por ejemplo, mientras tienes que eliminar enemigos), la flecha no aparece.
 
 ### HUD movible
 En **TRUCOS > HUD** hay una pantalla para cada parte: radar, escudo, vida, munición y granadas. Cada una se mueve en horizontal y vertical con un ajuste **grueso** (de 100 en 100, hasta ±1000) y uno **fino** (de 5 en 5, se suma al grueso): por ejemplo, 625 es 600 y +25. Un número positivo mueve a la derecha o hacia abajo; 0 deja cada parte donde el juego la pone. La mira no se puede mover.
@@ -75,7 +81,7 @@ Cada día, GitHub revisa si OpenCE publicó una versión nueva (**Actions > Vigi
 Si una compilación falla (por ejemplo, porque una versión nueva de OpenCE cambió algo que toca el parche), se abre un aviso en **Issues** con el enlace al error. Mientras ese aviso esté abierto, no se vuelve a intentar sola; se cierra cuando el parche quede arreglado.
 
 ### Versiones de prueba
-Los cambios nuevos se pueden probar primero en la rama **`pruebas`**. Lo que se compila desde ahí sale en **Releases** marcado como **pre-lanzamiento**, con un nombre como `HaloCE-trucos-PRUEBA-build-335.apk`, y no reemplaza la versión principal. Cuando la prueba sale bien, el cambio pasa a la rama `main`.
+Los cambios nuevos se prueban primero en la rama **`pruebas`**. Lo que se compila desde ahí es **privado**: sale en **Releases** como **borrador (Draft)**, que solo ve el dueño del repositorio, y es **otra app** ("Halo PRUEBA", paquete `com.halo.decomp.pruebas`) que se instala al lado de la normal sin reemplazarla. Tiene su propia carpeta para los archivos del juego y las partidas. Cuando la prueba sale bien, el cambio pasa a la rama `main`.
 
 ## Cómo está hecho este repositorio
 

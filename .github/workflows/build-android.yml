@@ -85,6 +85,19 @@ jobs:
           /usr/bin/python3 ../repo/trucos/regenerar_menus.py
           # El nombre de la app en el celular: Halo C.E
           sed -i 's#<string name="app_name">Halo</string>#<string name="app_name">Halo C.E</string>#' port/android/app/src/main/res/values/strings.xml
+          # Las pruebas son otra app (com.halo.decomp.pruebas, "Halo PRUEBA"): se
+          # instalan al lado de la normal sin reemplazarla. Tiene su propia carpeta
+          # (/sdcard/Android/data/com.halo.decomp.pruebas/files) para el juego y
+          # las partidas.
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            sed -i 's#applicationId "com.halo.decomp"#applicationId "com.halo.decomp.pruebas"#' port/android/app/build.gradle
+            sed -i 's#com.halo.decomp.update#com.halo.decomp.pruebas.update#g' \
+              port/android/app/src/main/AndroidManifest.xml \
+              port/android/app/src/main/java/com/halo/decomp/UpdateProvider.java
+            sed -i 's#<string name="app_name">Halo C.E</string>#<string name="app_name">Halo PRUEBA</string>#' port/android/app/src/main/res/values/strings.xml
+            grep -n 'applicationId' port/android/app/build.gradle
+            grep -rn 'pruebas.update' port/android/app/src/main
+          fi
           grep -n 'app_name' port/android/app/src/main/res/values/strings.xml
           git status --short
 
@@ -135,7 +148,9 @@ jobs:
         with:
           name: halo-android-release
           path: src/dist/halo-android-release
-          retention-days: 7
+          # las pruebas solo un dia: en un repositorio publico cualquiera con cuenta
+          # de GitHub puede descargar un artifact
+          retention-days: ${{ github.ref_name == 'main' && 7 || 1 }}
 
       - name: Publicar el APK en Releases
         env:
@@ -152,14 +167,21 @@ jobs:
               --notes "$(printf '%s\n\n## Cambios\n%s' "$NOTAS" "$CAMBIOS")" \
               --latest
           else
+            # Las pruebas son privadas: se publican como BORRADOR (draft), que en
+            # Releases solo ve el dueno del repositorio (y quien tenga permiso de
+            # escritura). Se borran las pruebas anteriores (borradores y las viejas publicas).
+            for viejo in $(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft,isPrerelease,name \
+                --jq '.[] | select((.isDraft or .isPrerelease) and (.name | startswith("PRUEBA"))) | .tagName'); do
+              gh release delete "$viejo" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+            done
             APK="HaloCE-trucos-PRUEBA-${{ steps.version.outputs.ref }}.apk"
             cp src/dist/halo-android-release/app-release.apk "$APK"
             gh release create "prueba-$(date +%Y%m%d-%H%M)" "$APK" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "PRUEBA ($GITHUB_REF_NAME) - OpenCE ${{ steps.version.outputs.ref }} (#${{ github.run_number }})" \
-              --notes "$(printf 'Version de PRUEBA de la rama %s: puede tener errores.\n\n%s\n\n## Cambios\n%s' "$GITHUB_REF_NAME" "$NOTAS" "$CAMBIOS")" \
-              --prerelease
+              --notes "$(printf 'Version de PRUEBA de la rama %s: puede tener errores. Borrador privado: solo lo ve el dueno del repositorio.\n\n%s\n\n## Cambios\n%s' "$GITHUB_REF_NAME" "$NOTAS" "$CAMBIOS")" \
+              --draft
           fi
 
       # Si algo falla (por ejemplo, una version nueva de OpenCE que rompe el parche),

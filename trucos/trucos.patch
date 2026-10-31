@@ -806,7 +806,39 @@
  #include "game/game_engine.h"
  #include "game/players.h"
  #include "networking/network_connection.h"
-@@ -807,6 +808,118 @@
+@@ -124,6 +125,9 @@
+ #include "scenario/scenario_definitions.h"
+ #include "units/units.h"
+ #include "network_coop.h" /* port: port/linux/game/network_coop.c */
++#include "ai/path.h" /* port: the guide arrow's route (hud_port_guide_route) */
++#include "game/game.h"
++#include "units/bipeds.h" /* (biped_try_and_get) */
+ 
+ /* ---------- constants */
+ 
+@@ -675,6 +679,10 @@
+ 	return render_type;
+ }
+ 
++/* port: the guide arrow's distance (hud_port_guide_render): when it is drawn at
++the next corner of its route, the meters and the size are those of the target */
++static real hud_port_nav_distance_override = -1.f;
++
+ void custom_render_nav_point(
+ 	short local_player_index,
+ 	real_point3d const *position_pointer,
+@@ -701,6 +709,10 @@
+ 		unit_get_camera_position(local_player_get_player_index(local_player_index) == NONE ? NONE : player_get(local_player_get_player_index(local_player_index))->unit_index, &cam_pos);
+ 		distance = distance3d(&cam_pos, position_pointer);
+ 	}
++	if (hud_port_nav_distance_override>=0.f)
++	{
++		distance = hud_port_nav_distance_override;
++	}
+ 
+ 	if (distance > 15.f)
+ 	{
+@@ -807,6 +819,420 @@
  	return;
  }
  
@@ -820,6 +852,11 @@
 +const char *config_string(const char *name);
 +unsigned long config_changes(void);
 +boolean hs_port_guide_find_target(real_point3d const *player, real_point3d *target);
++void hs_port_guide_get_target_center(real_point3d *center);
++
++/* the objective's volume (its middle), for the route's floor */
++static boolean hud_port_guide_target_is_volume = FALSE;
++static real_point3d hud_port_guide_target_center;
 +
 +/* the allegiance table's teams (game_allegiance.c's NUMBER_OF_GAME_TEAMS) */
 +#define GUIDE_GAME_TEAMS 10
@@ -844,12 +881,16 @@
 +	}
 +
 +	*target_object_index = NONE;
++	hud_port_guide_target_is_volume = FALSE;
 +	if (mode==3)
 +	{
 +		real_point3d origin;
 +
 +		object_get_origin(unit_index, &origin);
 +		found = hs_port_guide_find_target(&origin, target);
++		hud_port_guide_target_is_volume = found;
++		if (found)
++			hs_port_guide_get_target_center(&hud_port_guide_target_center);
 +	}
 +	else if (mode==1 || mode==2)
 +	{
@@ -898,6 +939,285 @@
 +	return found;
 +}
 +
++/* port: the guide arrow's route (the GPS). The arrow does not point through the
++walls: it asks the AI's pathfinder (ai/path.c, what the marines and the covenant
++walk with) for the way to the target over the level's floor, and points to the
++next corner of it. The route is found again every few ticks, or when the target
++moves; between those the arrow moves on to the next corner as the player passes
++one. With no way (the target on another part of the level that is not loaded,
++in the air, or too far for the search), it points straight at the target as
++before. Distances are in world units (3.048 meters). */
++#define GUIDE_ROUTE_REFRESH_TICKS 10
++#define GUIDE_ROUTE_MINIMUM_TICKS 3
++#define GUIDE_ROUTE_CORNER_REACHED 0.5f
++#define GUIDE_ROUTE_TARGET_MOVED 0.5f
++#define GUIDE_ROUTE_ARROW_HEIGHT 0.4f
++#define GUIDE_ROUTE_MAXIMUM_STEPS 4
++#define GUIDE_ROUTE_MAXIMUM_FLOORS 3
++
++struct hud_port_guide_route_datum
++{
++	boolean valid;
++	char status; /* how the route went: S no floor under the player, T none under the
++	target, P the whole way, C part of the way, F and X no way, B the way not built */
++	long time;
++	short structure_bsp_index;
++	real_point3d target;
++	short step_count;
++	real_point3d steps[GUIDE_ROUTE_MAXIMUM_STEPS];
++};
++
++static struct hud_port_guide_route_datum hud_port_guide_routes[4];
++/* (the pathfinder's search: too big for the stack, and one at a time) */
++static struct path_state hud_port_guide_path_state;
++
++
++/* the floor under a point: the level's surface the pathfinder walks on */
++static boolean hud_port_guide_floor(
++	real_point3d const *point,
++	real depth,
++	real_point3d *floor_point,
++	long *surface_index)
++{
++	struct collision_result collision;
++	real_point3d start = *point;
++	real_vector3d down;
++	boolean found = FALSE;
++
++	start.z += 0.1f;
++	down.i = 0.f;
++	down.j = 0.f;
++	down.k = -depth;
++	global_current_collision_users[global_current_collision_user_depth++] = 20;
++	if (collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit),
++			&start, &down, NONE, &collision) &&
++		collision.type==_collision_result_structure && collision.surface_index!=NONE)
++	{
++		*floor_point = collision.point;
++		*surface_index = collision.surface_index;
++		found = TRUE;
++	}
++	--global_current_collision_user_depth;
++
++	return found;
++}
++
++/* the floors the target can be on, in order: under it; at points nearer the
++middle of the objective's volume (its nearest point to the player is often in
++a wall); then the same from higher up (a target low in a room can be in the
++floor: a ray from inside the level's walls passes through their back faces).
++Returns the candidate_index'th floor found (a different surface each) */
++static boolean hud_port_guide_goal_floor(
++	real_point3d const *target,
++	short candidate_index,
++	real_point3d *floor_point,
++	long *surface_index)
++{
++	static real const heights[3] = { 0.f, 1.f, 3.f };
++	short step_count = hud_port_guide_target_is_volume ? 5 : 1;
++	short step_index, height_index;
++	long found_surfaces[4];
++	short found_count = 0;
++
++	for (height_index = 0; height_index<3; height_index++)
++	{
++		for (step_index = 0; step_index<step_count; step_index++)
++		{
++			real t = step_index/4.f;
++			real_point3d start;
++			real_point3d point;
++			long surface;
++			short index;
++
++			start.x = target->x+(hud_port_guide_target_center.x-target->x)*t;
++			start.y = target->y+(hud_port_guide_target_center.y-target->y)*t;
++			start.z = target->z+(hud_port_guide_target_center.z-target->z)*t+heights[height_index];
++			if (!hud_port_guide_floor(&start, 5.f+2.f*heights[height_index], &point, &surface))
++				continue;
++			for (index = 0; index<found_count && found_surfaces[index]!=surface; index++)
++				;
++			if (index<found_count)
++				continue;
++			if (found_count==candidate_index)
++			{
++				*floor_point = point;
++				*surface_index = surface;
++				return TRUE;
++			}
++			if (found_count<4)
++				found_surfaces[found_count++] = surface;
++		}
++	}
++
++	return FALSE;
++}
++
++static boolean hud_port_guide_route_find(
++	long unit_index,
++	real_point3d const *target,
++	long target_object_index,
++	struct hud_port_guide_route_datum *route)
++{
++	struct path_input input;
++	struct path_result path;
++	real_point3d start = { 0 }, goal = { 0 };
++	long start_surface_index = NONE;
++	long goal_surface_index = NONE;
++	struct biped_datum *biped = biped_try_and_get(unit_index);
++	boolean found = FALSE;
++
++	route->step_count = 0;
++	route->status = 'S';
++	/* the player's floor: a biped on foot keeps it (biped_find_pathfinding_surface_index,
++	what the AI walks its own bipeds from; only read here, the hud does not change the
++	game); in a seat or when it is not known yet, the floor under the player */
++	if (biped && biped->object.parent_object_index==NONE &&
++		biped->biped.pathfinding_surface_index!=NONE)
++	{
++		start = biped->biped.pathfinding_point;
++		start_surface_index = biped->biped.pathfinding_surface_index;
++	}
++	if (start_surface_index==NONE)
++	{
++		real_point3d origin;
++
++		object_get_origin(unit_index, &origin);
++		if (!hud_port_guide_floor(&origin, 3.f, &start, &start_surface_index))
++		{
++			start = origin;
++			goto listo;
++		}
++	}
++	if (!hud_port_guide_goal_floor(target, 0, &goal, &goal_surface_index))
++	{
++		route->status = 'T';
++		goal = *target;
++		goto listo;
++	}
++	route->status = 'P';
++
++	path_input_new(&input, 0.2f, FALSE, biped && biped->object.parent_object_index!=NONE ?
++		biped->object.parent_object_index : unit_index);
++	path_input_set_start(&input, &start, start_surface_index);
++	if (target_object_index!=NONE)
++	{
++		input.ignore_target_object_index = target_object_index;
++	}
++	/* the target's floors one after another until one can be walked to (a floor
++	found from higher up can be a roof); with none, part of the way to the first */
++	{
++		short candidate_index;
++		boolean reached = FALSE;
++		real_point3d first_goal = goal;
++		long first_goal_surface_index = goal_surface_index;
++
++		for (candidate_index = 0; candidate_index<GUIDE_ROUTE_MAXIMUM_FLOORS && !reached; candidate_index++)
++		{
++			if (candidate_index>0 &&
++				!hud_port_guide_goal_floor(target, candidate_index, &goal, &goal_surface_index))
++			{
++				break;
++			}
++			path_state_new(&input, &hud_port_guide_path_state, NULL);
++			path_state_destination(&hud_port_guide_path_state, &goal, goal_surface_index, 0.3f);
++			reached = path_state_find(&hud_port_guide_path_state);
++		}
++		if (!reached)
++		{
++			if (candidate_index>1)
++			{
++				goal = first_goal;
++				goal_surface_index = first_goal_surface_index;
++				path_state_new(&input, &hud_port_guide_path_state, NULL);
++				path_state_destination(&hud_port_guide_path_state, &goal, goal_surface_index, 0.3f);
++				path_state_find(&hud_port_guide_path_state);
++			}
++			if (hud_port_guide_path_state.closest_node_index!=NONE)
++			{
++				/* not all the way (the search ran out, or no way): the part of the
++				way that comes closest to the target */
++				hud_port_guide_path_state.destination.target_radius = 10000.f;
++				route->status = 'C';
++			}
++			else
++			{
++				route->status = 'F';
++			}
++		}
++	}
++	if (path_state_build_path(&hud_port_guide_path_state, &path) && path.valid && path.step_count>0)
++	{
++		short step_index;
++
++		for (step_index = path.step_index; step_index<path.step_count && route->step_count<GUIDE_ROUTE_MAXIMUM_STEPS; step_index++)
++		{
++			route->steps[route->step_count++] = path.steps[step_index].point;
++		}
++		found = route->step_count>0;
++	}
++	if (!found && route->status!='F')
++	{
++		route->status = route->status=='C' ? 'X' : 'B';
++	}
++
++listo:
++	return found;
++}
++
++/* where the arrow is drawn: the next corner of the route the player has not
++reached, or the target */
++static void hud_port_guide_route_point(
++	short local_player_index,
++	long unit_index,
++	real_point3d const *target,
++	long target_object_index,
++	real_point3d *point)
++{
++	struct hud_port_guide_route_datum *route = &hud_port_guide_routes[local_player_index & 3];
++	long time = game_time_get();
++	short bsp_index = global_structure_bsp_index_get();
++	real_point3d origin;
++	short step_index;
++
++	*point = *target;
++	object_get_origin(unit_index, &origin);
++	if (!route->valid || time<route->time || time-route->time>=GUIDE_ROUTE_REFRESH_TICKS ||
++		route->structure_bsp_index!=bsp_index ||
++		(time-route->time>=GUIDE_ROUTE_MINIMUM_TICKS &&
++			distance_squared3d(&route->target, target)>GUIDE_ROUTE_TARGET_MOVED*GUIDE_ROUTE_TARGET_MOVED))
++	{
++		route->valid = TRUE;
++		route->time = time;
++		route->structure_bsp_index = bsp_index;
++		route->target = *target;
++		if (!hud_port_guide_route_find(unit_index, target, target_object_index, route))
++		{
++			route->step_count = 0;
++		}
++	}
++
++	for (step_index = 0; step_index<route->step_count; step_index++)
++	{
++		real_point3d const *step = &route->steps[step_index];
++		real dx = step->x-origin.x;
++		real dy = step->y-origin.y;
++
++		if (dx*dx+dy*dy>GUIDE_ROUTE_CORNER_REACHED*GUIDE_ROUTE_CORNER_REACHED)
++		{
++			/* the last corner is the target's floor: the target itself */
++			if (step_index<route->step_count-1 ||
++				distance_squared3d(step, target)>1.f)
++			{
++				*point = *step;
++				point->z += GUIDE_ROUTE_ARROW_HEIGHT;
++			}
++			break;
++		}
++	}
++
++	return;
++}
++
 +static void hud_port_guide_render(
 +	short local_player_index)
 +{
@@ -910,13 +1230,27 @@
 +		hud_port_guide_target(unit_index, &target, &target_object_index))
 +	{
 +		real_point3d head_position;
++		real_point3d camera_position;
++		real_point3d point;
++		long point_object_index;
 +
 +		unit_get_head_position(unit_index, &head_position);
++		hud_port_guide_route_point(local_player_index, unit_index, &target, target_object_index, &point);
++		point_object_index = point.x==target.x && point.y==target.y && point.z==target.z ?
++			target_object_index : NONE;
++		unit_get_camera_position(unit_index, &camera_position);
++		hud_port_nav_distance_override = distance3d(&camera_position, &target);
++		/* a corner of the route is drawn as in sight (the bumps of the ground hide
++		it): the hidden kind is left to the target itself, when there is no way */
 +		custom_render_nav_point(
 +			local_player_index,
-+			&target,
++			&point,
 +			0,
-+			hud_get_nav_point_render_type(local_player_index, &head_position, &target, target_object_index));
++			point_object_index==target_object_index &&
++				point.x==target.x && point.y==target.y && point.z==target.z ?
++				hud_get_nav_point_render_type(local_player_index, &head_position, &point, point_object_index) :
++				0);
++		hud_port_nav_distance_override = -1.f;
 +	}
 +
 +	return;
@@ -925,7 +1259,7 @@
  void hud_render_nav_points(
  	short local_player_index)
  {
-@@ -902,6 +1015,8 @@
+@@ -902,6 +1328,8 @@
  				nav_point->nav_index,
  				nav_point->screen_type);
  		}
@@ -936,7 +1270,7 @@
  	game_engine_render_nav_points(local_player_index);
 --- a/source/hs/hs_runtime.c
 +++ b/source/hs/hs_runtime.c
-@@ -3416,3 +3416,488 @@
+@@ -3416,3 +3416,567 @@
  
  	return FALSE;
  }
@@ -1233,6 +1567,51 @@
 +	return;
 +}
 +
++/* the point of a volume nearest the player: where the player walks into it (a
++volume can be big, its middle far over a wall or the sea) */
++static void hs_port_guide_volume_point(
++	short trigger_volume_index,
++	real_point3d const *player,
++	real_point3d *point)
++{
++	struct scenario_trigger_volume *volume = TAG_BLOCK_GET_ELEMENT(
++		&global_scenario_get()->trigger_volumes,
++		trigger_volume_index,
++		struct scenario_trigger_volume);
++
++	/* (a little inside it: at its very edge the player is not in it yet) */
++#define HS_PORT_GUIDE_INSIDE(value, low, high, margin) \
++	PIN((value), (low)+MIN((margin), ((high)-(low))/2.f), (high)-MIN((margin), ((high)-(low))/2.f))
++
++	if (volume->type==_scenario_trigger_volume_type_axis_aligned)
++	{
++		point->x = HS_PORT_GUIDE_INSIDE(player->x, volume->bounds.x0, volume->bounds.x1, 0.5f);
++		point->y = HS_PORT_GUIDE_INSIDE(player->y, volume->bounds.y0, volume->bounds.y1, 0.5f);
++		point->z = HS_PORT_GUIDE_INSIDE(player->z, volume->bounds.z0, volume->bounds.z1, 0.1f);
++	}
++	else
++	{
++		real_matrix4x3 matrix;
++		real_point3d local;
++		real_vector3d up_in_volume;
++		real_vector3d up = { 0.f, 0.f, 1.f };
++
++		matrix4x3_from_point_and_vectors(&matrix, &volume->position, &volume->forward, &volume->up);
++		matrix4x3_inverse_transform_point(&matrix, player, &local);
++		/* the volume's axis nearest the world's up gets the small margin */
++		matrix4x3_inverse_transform_vector(&matrix, &up, &up_in_volume);
++		local.x = HS_PORT_GUIDE_INSIDE(local.x, 0.f, volume->extents.i, fabs(up_in_volume.i)>0.7f ? 0.1f : 0.5f);
++		local.y = HS_PORT_GUIDE_INSIDE(local.y, 0.f, volume->extents.j, fabs(up_in_volume.j)>0.7f ? 0.1f : 0.5f);
++		local.z = HS_PORT_GUIDE_INSIDE(local.z, 0.f, volume->extents.k, fabs(up_in_volume.k)>0.7f ? 0.1f : 0.5f);
++		matrix4x3_transform_point(&matrix, &local, point);
++	}
++#undef HS_PORT_GUIDE_INSIDE
++
++	return;
++}
++
++/* the middle of a volume (where the floor under it is looked for when the
++nearest point is in a wall) */
 +static void hs_port_guide_volume_center(
 +	short trigger_volume_index,
 +	real_point3d *center)
@@ -1263,10 +1642,22 @@
 +	return;
 +}
 +
++/* the middle of the volume of the last target (hud_nav_points.c) */
++static real_point3d hs_port_guide_target_center;
++
++void hs_port_guide_get_target_center(
++	real_point3d *center)
++{
++	*center = hs_port_guide_target_center;
++
++	return;
++}
++
 +struct hs_port_guide_choice
 +{
 +	real_point3d const *player;
 +	real_point3d target;
++	real_point3d center;
 +	real best_distance_squared;
 +	boolean found;
 +};
@@ -1281,14 +1672,15 @@
 +		trigger_volume_index<global_scenario_get()->trigger_volumes.count &&
 +		!scenario_trigger_volume_test_point(trigger_volume_index, choice->player))
 +	{
-+		real_point3d center;
++		real_point3d point;
 +		real distance_squared;
 +
-+		hs_port_guide_volume_center(trigger_volume_index, &center);
-+		distance_squared = distance_squared3d(choice->player, &center);
++		hs_port_guide_volume_point(trigger_volume_index, choice->player, &point);
++		distance_squared = distance_squared3d(choice->player, &point);
 +		if (!choice->found || distance_squared<choice->best_distance_squared)
 +		{
-+			choice->target = center;
++			choice->target = point;
++			hs_port_guide_volume_center(trigger_volume_index, &choice->center);
 +			choice->best_distance_squared = distance_squared;
 +			choice->found = TRUE;
 +		}
@@ -1302,7 +1694,8 @@
 +static boolean hs_port_guide_thread_target(
 +	struct hs_thread_datum *thread,
 +	real_point3d const *player,
-+	real_point3d *target)
++	real_point3d *target,
++	real_point3d *center)
 +{
 +	struct hs_port_guide_choice choice;
 +	struct hs_stack_frame *frame = thread->stack;
@@ -1331,7 +1724,10 @@
 +		frame = frame->previous;
 +	}
 +	if (choice.found)
++	{
 +		*target = choice.target;
++		*center = choice.center;
++	}
 +
 +	return choice.found;
 +}
@@ -1344,6 +1740,7 @@
 +	long threads[HS_PORT_GUIDE_MAXIMUM_SCRIPTS];
 +	long thread_index;
 +	short order, fallback = NONE;
++	real best_distance_squared = 0.f;
 +	boolean found = FALSE;
 +
 +	if (!hs_runtime_globals.initialized || !hs_thread_data || global_scenario_index==NONE)
@@ -1395,8 +1792,11 @@
 +		}
 +	}
 +
-+	/* the first waiting script from the furthest place on; else the last before it */
-+	for (order = 0; order<hs_port_guide.count && !found; order++)
++	/* of the scripts waiting from the furthest place on, the nearest volume: a
++	level's main script waits for the next part of the level while the part's own
++	scripts wait for the steps on the way there (The Silent Cartographer's beach,
++	first its rocks, camp and arch); else the last before the furthest place */
++	for (order = 0; order<hs_port_guide.count; order++)
 +	{
 +		if (threads[order]!=NONE)
 +		{
@@ -1406,17 +1806,30 @@
 +			{
 +				if (order>=hs_port_guide.progress)
 +				{
-+					found = hs_port_guide_thread_target(thread, player, target);
-+				}
-+				else
-+				{
-+					real_point3d candidate;
++					real_point3d candidate, center;
 +
-+					if (hs_port_guide_thread_target(thread, player, &candidate))
++					if (hs_port_guide_thread_target(thread, player, &candidate, &center))
++					{
++						real distance_squared = distance_squared3d(player, &candidate);
++
++						if (!found || distance_squared<best_distance_squared)
++						{
++							*target = candidate;
++							hs_port_guide_target_center = center;
++							best_distance_squared = distance_squared;
++							found = TRUE;
++						}
++					}
++				}
++				else if (!found)
++				{
++					real_point3d candidate, center;
++
++					if (hs_port_guide_thread_target(thread, player, &candidate, &center))
 +					{
 +						fallback = order;
-+						if (fallback!=NONE)
-+							*target = candidate;
++						*target = candidate;
++						hs_port_guide_target_center = center;
 +					}
 +				}
 +			}
