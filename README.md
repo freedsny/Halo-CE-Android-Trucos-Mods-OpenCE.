@@ -1,4 +1,4 @@
-# Halo C.E con trucos (OpenCE para Android)
+# Halo C.E Android Trucos Mods (OpenCE)
 
 Versión de **Halo: Combat Evolved para Android** basada en [OpenCE (Open Community Edition)](https://github.com/OpenCommunityEdition/OpenCE), con **menús en español**, un **menú de trucos**, una **flecha guía hacia el objetivo de la misión** y la posibilidad de **mover las partes del HUD**.
 
