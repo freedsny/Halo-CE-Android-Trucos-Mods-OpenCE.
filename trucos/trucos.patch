@@ -310,7 +310,7 @@
  }
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
-@@ -460,6 +460,141 @@
+@@ -553,6 +553,137 @@
  		"profile starts at The Pillar of Autumn and opens each level as the one\n"
  		"before it is finished, as on the Xbox. Profiles already made keep their\n"
  		"progress; the console's profile_reset_campaign starts one over." },
@@ -383,12 +383,8 @@
 +	{ "guide.mode", _config_string, "\"off\"", "HALO_GUIDE_MODE", _environment_value, _platform_all,
 +		"The guide arrow (pause menu, SETTINGS, TRUCOS, GUIA), drawn like the scripts'\n"
 +		"markers, with the distance in meters: \"off\", \"ally\" (the nearest ally),\n"
-+		"\"enemy\" (the nearest enemy) or \"flag\" (the map's flag guide.flag_tens + guide.flag_ones)." },
-+	{ "guide.flag_tens", _config_integer, "0", "HALO_GUIDE_FLAG_TENS", _environment_value, _platform_all,
-+		"With guide.mode \"flag\": the tens of the number of the map's cutscene flag the\n"
-+		"arrow points to (1 is the first). 0 with guide.flag_ones 0: none." },
-+	{ "guide.flag_ones", _config_integer, "0", "HALO_GUIDE_FLAG_ONES", _environment_value, _platform_all,
-+		"With guide.mode \"flag\": the ones of the number of the cutscene flag." },
++		"\"enemy\" (the nearest enemy) or \"objective\" (where the campaign level waits\n"
++		"for the player to go next)." },
 +	{ "hud.shield_x", _config_integer, "0", "HALO_HUD_SHIELD_X", _environment_value, _platform_all,
 +		"Moves the shield part of the HUD, in HUD units (the tags' 640x480): positive\n"
 +		"is right, negative the other way. 0: where the tags put it." },
@@ -454,7 +450,7 @@
  		"Maps played as downloaded ones, besides those map sharing downloaded:\n"
 --- a/port/linux/game/menu_tags.c
 +++ b/port/linux/game/menu_tags.c
-@@ -1819,15 +1819,14 @@
+@@ -2123,15 +2123,14 @@
  #define PAUSE_NETWORK_SCREEN \
  	"main_menu/settings_select/player_setup/player_profile_edit/network_setup/in_game/in_game_network_settings_screen"
  
@@ -475,7 +471,7 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -381,6 +381,156 @@
+@@ -502,6 +502,152 @@
      ],
  }
  
@@ -526,7 +522,7 @@
 +        ("HUD: GRANADAS:", "network_setup/cheats_hud_grenades",
 +         "Mueve las granadas a otro lugar de la pantalla."),
 +        ("GUIA:", "network_setup/cheats_guia",
-+         "Una flecha con los metros que te indica el camino:\\nhacia un aliado, un enemigo o una bandera del mapa."),
++         "Una flecha con los metros que te indica el camino:\\nel objetivo de la mision, un aliado o un enemigo."),
 +        ("AJUSTES:", "network_setup/cheats_ajustes",
 +         "Brillo (HDR), bots, desbloquear niveles y\\nanimaciones mejoradas."),
 +    ],
@@ -620,12 +616,8 @@
 +    "screen": "cheats_guia_screen", "header": ("header_guia", f"{PE}/network_setup/cheats/header_guia"), "spacing": 30,
 +    "rows": [
 +        ("FLECHA GUIA:", "guide.mode",
-+         [("APAGADA", "off"), ("ALIADO CERCANO", "ally"), ("ENEMIGO CERCANO", "enemy"), ("BANDERA DEL MAPA", "flag")],
-+         "Una flecha con los metros, como los marcadores del juego.\\nAliado o enemigo: el mas cercano. Bandera: la del numero de abajo.", None),
-+        ("BANDERA (DECENAS):", "guide.flag_tens", [(str(n), str(n)) for n in range(0, 100, 10)],
-+         "Solo con BANDERA DEL MAPA. Las banderas del mapa se\\ncuentan desde 1: decenas mas unidades, 0 es ninguna.", None),
-+        ("BANDERA (UNIDADES):", "guide.flag_ones", [(str(n), str(n)) for n in range(0, 10)],
-+         "Ejemplo: decenas 20 y unidades 3 es la bandera 23.\\nPrueba numeros hasta ver la flecha donde quieres ir.", None),
++         [("APAGADA", "off"), ("OBJETIVO MISION", "objective"), ("ALIADO CERCANO", "ally"), ("ENEMIGO CERCANO", "enemy")],
++         "Objetivo: a donde la mision espera que vayas.\\nAliado o enemigo: el mas cercano.", None),
 +    ],
 +}
 +
@@ -634,7 +626,7 @@
  # would drop the game (internet play) or are for the main menu (the router,
 --- a/source/interface/hud_draw.c
 +++ b/source/interface/hud_draw.c
-@@ -1002,6 +1002,59 @@
+@@ -999,6 +999,59 @@
  	return real_argb_color_to_pixel32(&color);
  }
  
@@ -694,7 +686,7 @@
  void hud_calculate_point(
  	short local_player_index,
  	struct hud_absolute_placement_definition const *absolute_placement,
-@@ -1070,6 +1123,12 @@
+@@ -1067,6 +1120,12 @@
  			placement->offset.y * scale;
  	}
  
@@ -776,7 +768,7 @@
  					word overlay_type_flags = game_engine_has_teams() != FALSE;
 --- a/source/interface/hud_weapon.c
 +++ b/source/interface/hud_weapon.c
-@@ -2099,6 +2099,7 @@
+@@ -2102,6 +2102,7 @@
  				weapon_index,
  				hud_index,
  				&weapon_state);
@@ -784,7 +776,7 @@
  			render_weapon_hud(
  				hud_index,
  				player->local_player_index,
-@@ -2107,6 +2108,7 @@
+@@ -2110,6 +2111,7 @@
  				NULL,
  				NULL,
  				NULL);
@@ -792,7 +784,7 @@
  			play_weapon_hud_sounds(
  				player->local_player_index,
  				hud_index,
-@@ -2124,9 +2126,11 @@
+@@ -2127,9 +2129,11 @@
  			&weapon_state);
  	}
  
@@ -814,20 +806,21 @@
  #include "game/game_engine.h"
  #include "game/players.h"
  #include "networking/network_connection.h"
-@@ -807,6 +808,122 @@
+@@ -807,6 +808,118 @@
  	return;
  }
  
 +/* port: the guide arrow (TRUCOS, GUIA). The player picks what it points to: the
-+nearest ally, the nearest enemy, or a numbered flag of the map (the scenario's
-+cutscene flags, which its scripts use for their own markers). It is drawn like the
++nearest ally, the nearest enemy, or the mission's objective (the trigger volume
++the level's progression scripts are waiting for the player to walk into:
++hs_runtime.c's hs_port_guide_find_target). It is drawn like the
 +scripts' markers (the arrow, the distance in meters, the edge of the screen when it
 +is behind), and does not use their four places */
 +long config_integer(const char *name);
 +const char *config_string(const char *name);
 +unsigned long config_changes(void);
++boolean hs_port_guide_find_target(real_point3d const *player, real_point3d *target);
 +
-+#define MAXIMUM_GUIDE_CHEAT_FLAGS 99
 +/* the allegiance table's teams (game_allegiance.c's NUMBER_OF_GAME_TEAMS) */
 +#define GUIDE_GAME_TEAMS 10
 +
@@ -838,8 +831,7 @@
 +{
 +	static unsigned long changes = 0;
 +	static boolean read = FALSE;
-+	static short mode = 0; /* 0 off, 1 ally, 2 enemy, 3 flag */
-+	static long flag_number = 0;
++	static short mode = 0; /* 0 off, 1 ally, 2 enemy, 3 objective */
 +	boolean found = FALSE;
 +
 +	if (!read || changes!=config_changes())
@@ -848,20 +840,16 @@
 +
 +		read = TRUE;
 +		changes = config_changes();
-+		mode = !strcmp(word, "ally") ? 1 : !strcmp(word, "enemy") ? 2 : !strcmp(word, "flag") ? 3 : 0;
-+		flag_number = config_integer("guide.flag_tens") + config_integer("guide.flag_ones");
++		mode = !strcmp(word, "ally") ? 1 : !strcmp(word, "enemy") ? 2 : !strcmp(word, "objective") ? 3 : 0;
 +	}
 +
 +	*target_object_index = NONE;
 +	if (mode==3)
 +	{
-+		struct scenario *scenario = global_scenario_get();
++		real_point3d origin;
 +
-+		if (flag_number>0 && flag_number<=MAXIMUM_GUIDE_CHEAT_FLAGS && flag_number<=scenario->cutscene_flags.count)
-+		{
-+			*target = TAG_BLOCK_GET_ELEMENT(&scenario->cutscene_flags, flag_number-1, struct scenario_cutscene_flag)->position;
-+			found = TRUE;
-+		}
++		object_get_origin(unit_index, &origin);
++		found = hs_port_guide_find_target(&origin, target);
 +	}
 +	else if (mode==1 || mode==2)
 +	{
@@ -937,7 +925,7 @@
  void hud_render_nav_points(
  	short local_player_index)
  {
-@@ -899,6 +1016,8 @@
+@@ -902,6 +1015,8 @@
  				nav_point->nav_index,
  				nav_point->screen_type);
  		}
@@ -946,3 +934,600 @@
  	}
  
  	game_engine_render_nav_points(local_player_index);
+--- a/source/hs/hs_runtime.c
++++ b/source/hs/hs_runtime.c
+@@ -3416,3 +3416,488 @@
+ 
+ 	return FALSE;
+ }
++
++/* ---------- port: the guide arrow's objective (TRUCOS, GUIA, OBJETIVO DE LA
++MISION). A campaign level moves on as the player walks into trigger volumes: its
++scripts wait for them (sleep_until with volume_test_objects ... (players)). The
++level's progression scripts, in the order it wakes them, are listed in
++hs_port_guide_routes.h; the arrow points at the volume the first of them that is
++waiting is waiting for, read from its running thread, so it follows the level and
++a saved game. Scripts behind the furthest place the player has been are skipped,
++in case the player went around one of their volumes */
++
++#include "hs/hs_port_guide_routes.h"
++
++#define HS_PORT_GUIDE_MAXIMUM_SCRIPTS 192
++#define HS_PORT_GUIDE_MAXIMUM_VOLUMES 512
++#define HS_PORT_GUIDE_MAXIMUM_NODES 4096
++#define HS_PORT_GUIDE_MAXIMUM_DEPTH 3
++
++static struct
++{
++	void const *scripts_address; /* the scenario's scripts the route was matched for */
++	long scripts_count;
++	boolean matched;
++	short count;
++	short script_indices[HS_PORT_GUIDE_MAXIMUM_SCRIPTS];
++	short volume_order[HS_PORT_GUIDE_MAXIMUM_VOLUMES]; /* NONE: not the route's */
++	short progress;
++	long last_time;
++	short functions_read;
++	short volume_functions[4];
++	short player_functions[2];
++} hs_port_guide;
++
++/* a syntax node, or NULL: every index is checked, as a script may be broken */
++static struct hs_syntax_node *hs_port_guide_node(
++	long index)
++{
++	struct hs_syntax_node *node = NULL;
++
++	if (index!=NONE && hs_syntax_data && hs_syntax_data->valid)
++	{
++		short absolute_index = (short)(index&0xFFFF);
++		short identifier = (short)(index>>16);
++
++		if (absolute_index>=0 && absolute_index<hs_syntax_data->maximum_count)
++		{
++			node = (struct hs_syntax_node *)((byte *)hs_syntax_data->data+hs_syntax_data->size*absolute_index);
++			if (!node->datum_header || (identifier && node->datum_header!=identifier))
++				node = NULL;
++		}
++	}
++
++	return node;
++}
++
++static void hs_port_guide_read_functions(
++	void)
++{
++	static char const *const volume_names[4] =
++		{ "volume_test_objects", "volume_test_object", "volume_test_objects_all", "volume_test_objects_any" };
++	static char const *const player_names[2] = { "players", "player" };
++	short index, name_index;
++
++	for (name_index = 0; name_index<4; name_index++)
++		hs_port_guide.volume_functions[name_index] = NONE;
++	for (name_index = 0; name_index<2; name_index++)
++		hs_port_guide.player_functions[name_index] = NONE;
++	for (index = 0; index<hs_function_table_count; index++)
++	{
++		struct hs_function_definition *definition = hs_function_get(index);
++
++		if (definition && definition->name)
++		{
++			for (name_index = 0; name_index<4; name_index++)
++				if (!strcmp(definition->name, volume_names[name_index]))
++					hs_port_guide.volume_functions[name_index] = index;
++			for (name_index = 0; name_index<2; name_index++)
++				if (!strcmp(definition->name, player_names[name_index]))
++					hs_port_guide.player_functions[name_index] = index;
++		}
++	}
++	hs_port_guide.functions_read = TRUE;
++
++	return;
++}
++
++static char const *hs_port_guide_script_name(
++	long script_index)
++{
++	struct scenario *scenario = global_scenario_get();
++
++	if (script_index>=0 && script_index<scenario->hs_scripts.count)
++		return TAG_BLOCK_GET_ELEMENT(&scenario->hs_scripts, script_index, struct hs_script)->name;
++
++	return "";
++}
++
++/* whether an expression names the players: (players), (player), or a script of
++the level's own such as player0 */
++static boolean hs_port_guide_names_players(
++	long expression_index,
++	short *budget)
++{
++	boolean result = FALSE;
++
++	while (!result && expression_index!=NONE && --*budget>0)
++	{
++		struct hs_syntax_node *node = hs_port_guide_node(expression_index);
++
++		if (!node)
++			break;
++		if (TEST_FLAG(node->flags, _hs_syntax_node_script_bit))
++		{
++			result = !strncmp(hs_port_guide_script_name(node->script_index), "player", 6);
++		}
++		else if (!TEST_FLAG(node->flags, _hs_syntax_node_primitive_bit))
++		{
++			if (node->function_index==hs_port_guide.player_functions[0] ||
++				node->function_index==hs_port_guide.player_functions[1])
++			{
++				result = TRUE;
++			}
++			else
++			{
++				struct hs_syntax_node *name = hs_port_guide_node(node->data);
++
++				if (name)
++					result = hs_port_guide_names_players(name->next_node_index, budget);
++			}
++		}
++		expression_index = node->next_node_index;
++	}
++
++	return result;
++}
++
++typedef void (*hs_port_guide_volume_proc)(short trigger_volume_index, void *data);
++
++/* every volume_test_objects ... (players) in an expression, its arguments and
++the static scripts it calls */
++static void hs_port_guide_find_volumes(
++	long expression_index,
++	boolean siblings,
++	short depth,
++	short *budget,
++	hs_port_guide_volume_proc proc,
++	void *data)
++{
++	while (expression_index!=NONE && --*budget>0)
++	{
++		struct hs_syntax_node *node = hs_port_guide_node(expression_index);
++
++		if (!node)
++			break;
++		if (TEST_FLAG(node->flags, _hs_syntax_node_script_bit))
++		{
++			struct scenario *scenario = global_scenario_get();
++
++			if (depth>0 && node->script_index>=0 && node->script_index<scenario->hs_scripts.count)
++			{
++				hs_port_guide_find_volumes(
++					TAG_BLOCK_GET_ELEMENT(&scenario->hs_scripts, node->script_index, struct hs_script)->root_expression_index,
++					FALSE, depth-1, budget, proc, data);
++			}
++		}
++		else if (!TEST_FLAG(node->flags, _hs_syntax_node_primitive_bit))
++		{
++			struct hs_syntax_node *name = hs_port_guide_node(node->data);
++			short function_index;
++			boolean volume_test = FALSE;
++
++			for (function_index = 0; function_index<4; function_index++)
++				if (hs_port_guide.volume_functions[function_index]!=NONE &&
++					node->function_index==hs_port_guide.volume_functions[function_index])
++				{
++					volume_test = TRUE;
++				}
++
++			if (name && volume_test)
++			{
++				struct hs_syntax_node *volume = hs_port_guide_node(name->next_node_index);
++				short player_budget = 64;
++
++				if (volume && TEST_FLAG(volume->flags, _hs_syntax_node_primitive_bit) &&
++					volume->type==_hs_type_trigger_volume &&
++					hs_port_guide_names_players(volume->next_node_index, &player_budget))
++				{
++					proc(volume->short_value, data);
++				}
++			}
++			else if (name)
++			{
++				hs_port_guide_find_volumes(name->next_node_index, TRUE, depth, budget, proc, data);
++			}
++		}
++
++		if (!siblings)
++			break;
++		expression_index = node->next_node_index;
++	}
++
++	return;
++}
++
++static void hs_port_guide_note_volume(
++	short trigger_volume_index,
++	void *data)
++{
++	short order = *(short *)data;
++
++	if (trigger_volume_index>=0 && trigger_volume_index<HS_PORT_GUIDE_MAXIMUM_VOLUMES &&
++		(hs_port_guide.volume_order[trigger_volume_index]==NONE ||
++			hs_port_guide.volume_order[trigger_volume_index]>order))
++	{
++		hs_port_guide.volume_order[trigger_volume_index] = order;
++	}
++
++	return;
++}
++
++/* the route of this level: the one most of whose scripts it has */
++static void hs_port_guide_match(
++	void)
++{
++	struct scenario *scenario = global_scenario_get();
++	char const *const *route = hs_port_guide_routes;
++	char const *const *best_route = NULL;
++	short best_found = 0;
++	short index;
++
++	hs_port_guide.scripts_address = scenario->hs_scripts.address;
++	hs_port_guide.scripts_count = scenario->hs_scripts.count;
++	hs_port_guide.matched = FALSE;
++	hs_port_guide.count = 0;
++	hs_port_guide.progress = 0;
++	for (index = 0; index<HS_PORT_GUIDE_MAXIMUM_VOLUMES; index++)
++		hs_port_guide.volume_order[index] = NONE;
++
++	while (*route)
++	{
++		char const *const *name;
++		short total = 0, found = 0;
++
++		for (name = route; *name; name++)
++		{
++			long script_index;
++
++			total++;
++			for (script_index = 0; script_index<scenario->hs_scripts.count; script_index++)
++			{
++				if (!strcmp(*name, hs_port_guide_script_name(script_index)))
++				{
++					found++;
++					break;
++				}
++			}
++		}
++		if (found>=3 && found*2>=total && found>best_found)
++		{
++			best_route = route;
++			best_found = found;
++		}
++		route = name+1;
++	}
++
++	if (best_route)
++	{
++		char const *const *name;
++
++		for (name = best_route; *name && hs_port_guide.count<HS_PORT_GUIDE_MAXIMUM_SCRIPTS; name++)
++		{
++			long script_index;
++
++			for (script_index = 0; script_index<scenario->hs_scripts.count; script_index++)
++			{
++				if (!strcmp(*name, hs_port_guide_script_name(script_index)))
++				{
++					short order = hs_port_guide.count;
++					short budget = HS_PORT_GUIDE_MAXIMUM_NODES;
++
++					hs_port_guide.script_indices[hs_port_guide.count++] = (short)script_index;
++					hs_port_guide_find_volumes(
++						TAG_BLOCK_GET_ELEMENT(&scenario->hs_scripts, script_index, struct hs_script)->root_expression_index,
++						FALSE, HS_PORT_GUIDE_MAXIMUM_DEPTH, &budget, hs_port_guide_note_volume, &order);
++					break;
++				}
++			}
++		}
++		hs_port_guide.matched = hs_port_guide.count>0;
++	}
++
++	return;
++}
++
++static void hs_port_guide_volume_center(
++	short trigger_volume_index,
++	real_point3d *center)
++{
++	struct scenario_trigger_volume *volume = TAG_BLOCK_GET_ELEMENT(
++		&global_scenario_get()->trigger_volumes,
++		trigger_volume_index,
++		struct scenario_trigger_volume);
++
++	if (volume->type==_scenario_trigger_volume_type_axis_aligned)
++	{
++		center->x = (volume->bounds.x0+volume->bounds.x1)/2.f;
++		center->y = (volume->bounds.y0+volume->bounds.y1)/2.f;
++		center->z = (volume->bounds.z0+volume->bounds.z1)/2.f;
++	}
++	else
++	{
++		real_matrix4x3 matrix;
++		real_point3d middle;
++
++		middle.x = volume->extents.i/2.f;
++		middle.y = volume->extents.j/2.f;
++		middle.z = volume->extents.k/2.f;
++		matrix4x3_from_point_and_vectors(&matrix, &volume->position, &volume->forward, &volume->up);
++		matrix4x3_transform_point(&matrix, &middle, center);
++	}
++
++	return;
++}
++
++struct hs_port_guide_choice
++{
++	real_point3d const *player;
++	real_point3d target;
++	real best_distance_squared;
++	boolean found;
++};
++
++static void hs_port_guide_consider_volume(
++	short trigger_volume_index,
++	void *data)
++{
++	struct hs_port_guide_choice *choice = data;
++
++	if (trigger_volume_index>=0 &&
++		trigger_volume_index<global_scenario_get()->trigger_volumes.count &&
++		!scenario_trigger_volume_test_point(trigger_volume_index, choice->player))
++	{
++		real_point3d center;
++		real distance_squared;
++
++		hs_port_guide_volume_center(trigger_volume_index, &center);
++		distance_squared = distance_squared3d(choice->player, &center);
++		if (!choice->found || distance_squared<choice->best_distance_squared)
++		{
++			choice->target = center;
++			choice->best_distance_squared = distance_squared;
++			choice->found = TRUE;
++		}
++	}
++
++	return;
++}
++
++/* the volume a thread's sleep_until waits for, if it waits for the players to
++walk into one */
++static boolean hs_port_guide_thread_target(
++	struct hs_thread_datum *thread,
++	real_point3d const *player,
++	real_point3d *target)
++{
++	struct hs_port_guide_choice choice;
++	struct hs_stack_frame *frame = thread->stack;
++	short frames = 0;
++
++	choice.player = player;
++	choice.found = FALSE;
++	choice.best_distance_squared = 0.f;
++	while (!choice.found && frame && frames++<64 &&
++		(byte *)frame>=thread->stack_data && (byte *)frame<thread->stack_data+HS_THREAD_STACK_SIZE)
++	{
++		struct hs_syntax_node *node = hs_port_guide_node(frame->expression_index);
++
++		if (node && !TEST_FLAG(node->flags, _hs_syntax_node_primitive_bit) &&
++			!TEST_FLAG(node->flags, _hs_syntax_node_script_bit) &&
++			node->function_index==_hs_function_sleep_until)
++		{
++			struct hs_syntax_node *name = hs_port_guide_node(node->data);
++			short budget = HS_PORT_GUIDE_MAXIMUM_NODES;
++
++			if (name)
++				hs_port_guide_find_volumes(name->next_node_index, FALSE, HS_PORT_GUIDE_MAXIMUM_DEPTH,
++					&budget, hs_port_guide_consider_volume, &choice);
++			break;
++		}
++		frame = frame->previous;
++	}
++	if (choice.found)
++		*target = choice.target;
++
++	return choice.found;
++}
++
++boolean hs_port_guide_find_target(
++	real_point3d const *player,
++	real_point3d *target)
++{
++	struct scenario *scenario;
++	long threads[HS_PORT_GUIDE_MAXIMUM_SCRIPTS];
++	long thread_index;
++	short order, fallback = NONE;
++	boolean found = FALSE;
++
++	if (!hs_runtime_globals.initialized || !hs_thread_data || global_scenario_index==NONE)
++		return FALSE;
++
++	scenario = global_scenario_get();
++	if (!hs_port_guide.functions_read)
++		hs_port_guide_read_functions();
++	if (hs_port_guide.scripts_address!=scenario->hs_scripts.address ||
++		hs_port_guide.scripts_count!=scenario->hs_scripts.count)
++	{
++		hs_port_guide_match();
++	}
++	if (!hs_port_guide.matched)
++		return FALSE;
++
++	/* a saved game loaded (the time goes back): the furthest place is found again */
++	if (game_time_get()<hs_port_guide.last_time)
++		hs_port_guide.progress = 0;
++	hs_port_guide.last_time = game_time_get();
++
++	/* the furthest place the player has been: the route's volumes it is in */
++	for (thread_index = 0;
++		thread_index<scenario->trigger_volumes.count && thread_index<HS_PORT_GUIDE_MAXIMUM_VOLUMES;
++		thread_index++)
++	{
++		short volume_order = hs_port_guide.volume_order[thread_index];
++
++		if (volume_order!=NONE && volume_order>hs_port_guide.progress &&
++			scenario_trigger_volume_test_point((short)thread_index, player))
++		{
++			hs_port_guide.progress = volume_order;
++		}
++	}
++
++	for (order = 0; order<hs_port_guide.count; order++)
++		threads[order] = NONE;
++	for (thread_index = data_next_index(hs_thread_data, NONE);
++		thread_index!=NONE;
++		thread_index = data_next_index(hs_thread_data, thread_index))
++	{
++		struct hs_thread_datum *thread = hs_thread_get(thread_index);
++
++		if (thread->type==_hs_thread_type_script)
++		{
++			for (order = 0; order<hs_port_guide.count; order++)
++				if (hs_port_guide.script_indices[order]==thread->script_index)
++					threads[order] = thread_index;
++		}
++	}
++
++	/* the first waiting script from the furthest place on; else the last before it */
++	for (order = 0; order<hs_port_guide.count && !found; order++)
++	{
++		if (threads[order]!=NONE)
++		{
++			struct hs_thread_datum *thread = hs_thread_get(threads[order]);
++
++			if (thread->sleep_until>=0 && valid_thread(thread))
++			{
++				if (order>=hs_port_guide.progress)
++				{
++					found = hs_port_guide_thread_target(thread, player, target);
++				}
++				else
++				{
++					real_point3d candidate;
++
++					if (hs_port_guide_thread_target(thread, player, &candidate))
++					{
++						fallback = order;
++						if (fallback!=NONE)
++							*target = candidate;
++					}
++				}
++			}
++		}
++	}
++
++	return found || fallback!=NONE;
++}
+--- /dev/null
++++ b/source/hs/hs_port_guide_routes.h
+@@ -0,0 +1,103 @@
++/* port: the guide arrow's routes (TRUCOS, GUIA, OBJETIVO): for each campaign
++level, the scripts that move it on as the player walks into its trigger volumes,
++in the order the level wakes them. Only their names: the arrow reads, from each
++script's running thread, the volume it is waiting for (hs_runtime.c,
++hs_port_guide_find_target). A level is known by these names among its own
++scripts. Each route ends with NULL, and the list with a second NULL */
++
++static char const *const hs_port_guide_routes[] =
++{
++	/* a10: The Pillar of Autumn */
++	"cont_thing", "tutorial_moving_1", "tutorial_moving_2", "tutorial_hud_shield",
++	"tutorial_asst_kill", "tutorial_first_contact", "tutorial_weapon",
++	"tutorial_motiontracker", "tutorial_melee", "mission_cryo_explosion",
++	"mission_blam_burn", "mission_blam_scare", "mission_containment_1",
++	"containment_1_slam", "mission_crossfire", "mission_bridge", "mission_shoot",
++	"mission_cafeteria", "mission_airlock_1", "mission_flank", "mission_loop",
++	"mission_airlock_2", "mission_knot", "mission_stairs", "mission_containment_2",
++	"mission_lifepod_1", "mission_tunnel", "cryo_search", "mission_boom", "mission_final", NULL,
++	/* a30: Halo */
++	"mission_a30", "mission_lz", "mission_lz_banshee", "mission_first",
++	"mission_first_wave_1", "mission_first_wave_2", "mission_first_defend",
++	"mission_first_retreat", "mission_first_wave_3", "mission_first_wave_4",
++	"mission_first_wave_5", "mission_first_wave_6", "objective_cave", "mission_cave",
++	"mission_cliff", "mission_cliff_marine", "mission_rubble", "mission_rubble_defend",
++	"mission_rubble_retreat", "mission_rubble_wave_2", "mission_rubble_wave_3",
++	"mission_rubble_wave_4", "mission_rubble_wave_5", "mission_river",
++	"mission_river_marine", "mission_river_defend", "mission_river_retreat",
++	"mission_river_wave_2", "mission_river_wave_3", "mission_obj", "mission_mid_rubble_1",
++	"mission_mid_cliff_1", "mission_mid_river_1", "mission_mid_cliff_2", NULL,
++	/* a50: The Truth and Reconciliation */
++	"mission_a50", "mission_area2", "mig_marines_area2", "mission_area3",
++	"mig_marines_area3", "mission_area4", "ini_area4_grunts_m", "mission_area5",
++	"ini_area5_pelican", "enc_grav_hunters", "man_marines_to_door",
++	"mission_grav_mus_hall", "enc_grav_mus_hall", "mission_muster_bay", "ini_muster_hall",
++	"ini_muster_hangar_hall", "mission_hangar", "ini_hangar_hall_open",
++	"ini_hangar_pelican_b", "mission_control", "mission_prison", NULL,
++	/* b30: The Silent Cartographer */
++	"main_b30", "mission_beach_lz", "mission_shafta", "mission_shafta_lock",
++	"mission_shaftb", "mission_crash", "mission_shafta_inv", "crack_arrival",
++	"shaftb_arrival", NULL,
++	/* b40: Assault on the Control Room */
++	"mission_b40", "mission_a1", "mission_a_bridge", "ini_a_bridge_reins", "mission_a2",
++	"ini_a2_top_reins", "mission_ext_a", "ini_ext_a_marines",
++	"ini_ext_a_area_a_migration", "ini_ext_a_area_b", "mission_crevasse", "mission_ext_b",
++	"ini_ext_b_tower", "ini_ext_b_trigger_b", "ini_ext_b_trigger_c",
++	"ini_ext_b_b_dropship_a", "ini_pipe_cov", "mission_b3", "ini_b3_top_reins",
++	"ini_b3_top_tree", "mission_b3_bridge", "ini_b4_bridge_cheat", "mission_b5",
++	"mission_c_bridge", "mission_control", "ini_c_bridge_banshee", "mission_c1",
++	"mission_ext_c", "ini_ext_c_migration", NULL,
++	/* c10: 343 Guilty Spark */
++	"mission_c10", "mission_swamp_a", "enc_swamp1", "enc_swamp2", "inc_log", "inc3",
++	"inc4", "inc5", "inc6", "inc7", "mission_int_a", "ini_crazy_marine",
++	"mission_control", "ini_int_b_lab_b", "ini_int_b_hall_d", "ini_int_a_hall_b",
++	"ini_int_a_lift_a", "ini_int_a_lift_b", "mission_int_b", "ini_int_c_lab_a",
++	"ini_int_c_hall_a_labs", "ini_int_c_hall_b_labs", "ini_int_d_lift_c",
++	"ini_int_d_hall_d_labs", "ini_int_d_hall_e_labs", "ini_int_d_hall_f_labs",
++	"ini_int_d_hall_g_labs", "mission_swamp_b", "ini_swamp_b_marines", NULL,
++	/* c20: The Library */
++	"section1", "enc1", "enc2", "enc3", "enc4", "enc5", "enc6", "enc7", "enc8", "enc1_9",
++	"section2", "enc2_0", "enc2_1", "enc2_2", "enc2_3", "enc2_4", "enc2_5", "enc2_6",
++	"enc2_8", "enc2_10", "enc2_11", "enc2_12", "enc2_9", "enc2_7", "section3", "enc3_1",
++	"enc3_2", "enc3_3", "enc3_4", "monitor2_4", "enc3_5", "enc3_6", "monitor2_5",
++	"monitor2_6", "monitor2_7", "monitor2_8", "monitor2_9", "monitor2_10", "monitor2_11",
++	"monitor2_1", "monitor2_2", "section4", "enc4_0", "enc4_1", "enc4_2", "enc4_3",
++	"enc4_4", "enc4_6", "enc4_7", "enc4_8", "enc4_5", "section5", "enc5_0", "enc5_1",
++	"enc5_2", "enc5_3", "enc5_4", "enc5_5", "monitor3_4", "monitor3_5", "monitor3_6",
++	"monitor3_7", "enc5_6", "monitor3_1", "monitor3_2", "section6", "enc6_1", "enc6_2",
++	"enc6_3", "enc6_4", "monitor3_9", "enc6_5", "enc6_6", "enc6_7", "enc6_8", "enc7_1",
++	"enc7_3", "enc7_4", "enc7_5", "enc7_6", "enc7_7", "enc7_8", "enc7_9", "enc7_10",
++	"enc7_12", "monitor4_4", "monitor4_3", "monitor4_1", "monitor1_2", "monitor1_3",
++	"monitor1_4", "monitor1_5", "monitor1_6", "monitor1_7", "monitor1_9", "monitor1_10",
++	"monitor1_12", "monitor1_13", "monitor1_14", "monitor1_15", "monitor1_9b", NULL,
++	/* c40: Two Betrayals */
++	"e3_a", "c3_base_tier_2", "e5_a", "e6_a", "e7_b", "e7_c", "e8_a", "e8_b", "e20_a",
++	"e21_a", "e21_b", "e22_a", "e30_a", "e31_b", "e31_c", "e31_d", "e33_a", "e33_b",
++	"e34_a", "e37_a", "e38_a", "e39_a", "e40_a", "banshee_alt", "e43_a", "e43_b", "e43_c",
++	"e44_a", "e46_speech", "e46_a", "e48_a", "e50_a", "e51_a", "second_lp", "e52_a",
++	"e52_c", "e53_a", "c40_230_240_250", "waypoint_off", "e57_a", "e59_a", "e59_b",
++	"e59_c", "e60_a", "e61_a", "e62_a", "e62_b", "e65_a", "last_waypoint_off", "e66_a",
++	"end", NULL,
++	/* d20: Keyes */
++	"section1", "enc1_1", "enc1_2", "enc1_4", "enc1_5", "section3", "enc3_1", "enc3_2",
++	"enc3_3", "enc3_4", "enc3_5", "enc3_6", "enc3_7", "enc3_8", "enc3_9", "section4",
++	"enc4_2", "enc4_3", "enc4_4", "enc4_5", "enc4_6", "enc4_7", "enc4_9", "enc4_8",
++	"section5", "enc5_1", "enc5_2", "enc5_3", "enc5_4", "enc5_5", "enc5_6", "enc5_7",
++	"section6", "enc6_1", "enc6_2", "enc6_3", "enc6_4", "section7", "enc7_1", "enc7_2",
++	"enc7_3", "enc7_6", "enc7_5", NULL,
++	/* d40: The Maw */
++	"section1", "enc1_1", "enc1_2", "enc1_3", "enc1_4", "section2", "enc2_1", "enc2_2",
++	"enc2_4", "enc2_5", "enc2_6", "enc2_7", "section3", "enc3_1", "enc3_2", "enc3_3",
++	"enc3_4", "enc3_5", "enc3_6", "section4", "enc4_1", "enc4_3", "section5", "enc5_1",
++	"enc5_1_s12", "enc5_2", "enc5_3", "section6", "enc6_0", "enc6_0_1", "enc6_1",
++	"enc6_1_1", "enc6_1_2", "enc6_1_3", "enc6_1_4", "enc6_1_5", "enc6_1_6", "enc6_1_7",
++	"enc6_1_8", "enc6_1_9", "enc6_2", "enc6_2_0", "enc6_2_1", "enc6_2_2", "enc6_2_3",
++	"enc6_2_4", "enc6_2_5", "enc6_2_6", "enc6_2_7", "enc6_2_8", "enc6_3", "enc6_3_1",
++	"enc6_3_2", "enc6_3_3", "enc6_3_4", "enc6_4", "enc6_4_1", "enc6_4_2", "enc6_4_3",
++	"enc6_4_4", "enc6_4_5", "enc6_4_6", "enc6_4_7", "enc6_4_8", "enc6_5", "enc6_5_1",
++	"enc6_5_2", "enc6_5_3", "enc6_5_4", "enc6_5_5", "enc6_5_6", "enc6_5_7", "enc6_5_8",
++	"enc6_6", "enc6_6_1", "enc6_7", "enc6_7_1", "enc6_7_2", "enc6_8", "enc6_8_1",
++	"enc6_8_2", "enc6_8_3", "enc6_8_4", "enc6_8_5", "enc6_8_6", "enc6_8_7", "enc6_8_8",
++	"enc6_9_1", "section7", "enc7_1", "enc7_7", NULL,
++	NULL
++};

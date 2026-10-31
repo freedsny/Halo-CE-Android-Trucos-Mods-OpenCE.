@@ -140,7 +140,7 @@ strings_xml.write_text(texto, encoding="utf-8", newline="")
 # parche, porque la linea vecina cambia entre versiones de OpenCE
 config_c = pathlib.Path("port/linux/src/port_config.c")
 fuente_c = config_c.read_text(encoding="utf-8")
-palabras = '\t{ "guide.mode", { "off", "ally", "enemy", "flag", NULL }, NULL },\n'
+palabras = '\t{ "guide.mode", { "off", "objective", "ally", "enemy", NULL }, NULL },\n'
 if '"guide.mode", {' not in fuente_c:
     for punto in ('\t{ "display.hud_button_style", {', "config_words[] =\n{\n"):
         i = fuente_c.find(punto)
