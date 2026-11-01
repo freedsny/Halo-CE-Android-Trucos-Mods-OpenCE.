@@ -1241,7 +1241,7 @@
  
  	if (distance > 15.f)
  	{
-@@ -807,6 +823,914 @@
+@@ -807,6 +823,943 @@
  	return;
  }
  
@@ -1353,6 +1353,7 @@
 +#define GUIDE_ROUTE_REFRESH_TICKS 10
 +#define GUIDE_ROUTE_MINIMUM_TICKS 3
 +#define GUIDE_ROUTE_CORNER_REACHED 0.5f
++#define GUIDE_ROUTE_CORNER_REACHED_RIDING 1.5f
 +#define GUIDE_ROUTE_TARGET_MOVED 0.5f
 +#define GUIDE_ROUTE_ARROW_HEIGHT 0.4f
 +#define GUIDE_ROUTE_MAXIMUM_STEPS 4
@@ -1475,6 +1476,10 @@
 +#define GUIDE_MAP_DONE (-2L)
 +#define GUIDE_MAP_FAR 1.0e30f
 +#define GUIDE_MAP_WALKABLE_BIT 6 /* (ai/path.c's _pathfinding_surface_walkable_bit) */
++/* a map from a floor under the target that reaches fewer surfaces than this
++(and a tenth of the level's part) is from an island (a roof, a rock): the
++target's next floor is tried */
++#define GUIDE_MAP_ISLAND_SURFACES 2000
 +
 +enum
 +{
@@ -1719,6 +1724,8 @@
 +	hud_port_guide_map.reached_count = 0;
 +	hud_port_guide_map.started_tick = game_time_get();
 +	hud_port_guide_map.milliseconds = 0;
++	error(_error_log, "guide: distance map started from surface %ld (floor %d) of %ld",
++		goal_surface_index, candidate_index, count);
 +
 +	return TRUE;
 +}
@@ -1951,14 +1958,20 @@
 +		hud_port_guide_map_start(target, goal_surface_index, &goal, 0);
 +	}
 +	else if (hud_port_guide_map.complete && !hud_port_guide_map_reaches(start_surface_index) &&
-+		hud_port_guide_map.candidate_index+1<GUIDE_MAP_MAXIMUM_CANDIDATES)
++		hud_port_guide_map.candidate_index+1<GUIDE_MAP_MAXIMUM_CANDIDATES &&
++		hud_port_guide_map.reached_count<GUIDE_MAP_ISLAND_SURFACES &&
++		hud_port_guide_map.reached_count<hud_port_guide_map.surface_count/10)
 +	{
 +		real_point3d next_goal;
 +		long next_goal_surface_index;
 +		short candidate_index = hud_port_guide_map.candidate_index+1;
 +
 +		if (hud_port_guide_goal_floor(target, candidate_index, &next_goal, &next_goal_surface_index))
++		{
++			error(_error_log, "guide: the target's floor is an island (%ld surfaces): its floor %d is tried",
++				hud_port_guide_map.reached_count, candidate_index);
 +			hud_port_guide_map_start(target, next_goal_surface_index, &next_goal, candidate_index);
++		}
 +		else
 +			hud_port_guide_map.candidate_index = GUIDE_MAP_MAXIMUM_CANDIDATES;
 +	}
@@ -2064,12 +2077,17 @@
 +	struct hud_port_guide_route_datum *route = &hud_port_guide_routes[local_player_index & 3];
 +	long time = game_time_get();
 +	short bsp_index = global_structure_bsp_index_get();
++	struct biped_datum *biped = biped_try_and_get(unit_index);
++	/* (in a vehicle the corners come faster and are passed wider) */
++	boolean riding = biped && biped->object.parent_object_index!=NONE;
++	long refresh_ticks = riding ? GUIDE_ROUTE_REFRESH_TICKS/2 : GUIDE_ROUTE_REFRESH_TICKS;
++	real reached = riding ? GUIDE_ROUTE_CORNER_REACHED_RIDING : GUIDE_ROUTE_CORNER_REACHED;
 +	real_point3d origin;
 +	short step_index;
 +
 +	*point = *target;
 +	object_get_origin(unit_index, &origin);
-+	if (!route->valid || time<route->time || time-route->time>=GUIDE_ROUTE_REFRESH_TICKS ||
++	if (!route->valid || time<route->time || time-route->time>=refresh_ticks ||
 +		route->structure_bsp_index!=bsp_index ||
 +		(time-route->time>=GUIDE_ROUTE_MINIMUM_TICKS &&
 +			distance_squared3d(&route->target, target)>GUIDE_ROUTE_TARGET_MOVED*GUIDE_ROUTE_TARGET_MOVED))
@@ -2089,8 +2107,19 @@
 +		real_point3d const *step = &route->steps[step_index];
 +		real dx = step->x-origin.x;
 +		real dy = step->y-origin.y;
++		boolean passed = dx*dx+dy*dy<=reached*reached;
 +
-+		if (dx*dx+dy*dy>GUIDE_ROUTE_CORNER_REACHED*GUIDE_ROUTE_CORNER_REACHED)
++		/* a corner is passed, too, once the player is nearer the next one than
++		it is (a wide turn goes by it) */
++		if (!passed && step_index+1<route->step_count)
++		{
++			real_point3d const *next = &route->steps[step_index+1];
++			real player_x = next->x-origin.x, player_y = next->y-origin.y;
++			real corner_x = next->x-step->x, corner_y = next->y-step->y;
++
++			passed = player_x*player_x+player_y*player_y<corner_x*corner_x+corner_y*corner_y;
++		}
++		if (!passed)
 +		{
 +			/* the last corner is the target's floor: the target itself */
 +			if (step_index<route->step_count-1 ||
@@ -2156,7 +2185,7 @@
  void hud_render_nav_points(
  	short local_player_index)
  {
-@@ -902,6 +1826,8 @@
+@@ -902,6 +1855,8 @@
  				nav_point->nav_index,
  				nav_point->screen_type);
  		}
