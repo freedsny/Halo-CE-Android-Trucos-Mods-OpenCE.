@@ -643,7 +643,7 @@
  	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
  
  	match_assert_stack_frame("c:\\halo\\SOURCE\\interface\\hud_draw.c", 1372);
-@@ -999,6 +1002,184 @@
+@@ -999,6 +1002,204 @@
  	return real_argb_color_to_pixel32(&color);
  }
  
@@ -656,6 +656,9 @@
 +unsigned long config_changes(void);
 +
 +short hud_port_part = _hud_port_part_none;
++/* the editor's move of each part while a finger drags it, in HUD units, shown
++before it is saved (hud_port_offset adds it; the rectangles leave it out) */
++static real hud_port_preview[NUMBER_OF_HUD_PORT_PARTS][2];
 +
 +static real hud_port_offset(
 +	short part,
@@ -694,7 +697,7 @@
 +				}
 +			}
 +		}
-+		result = offsets[part][axis];
++		result = offsets[part][axis]+hud_port_preview[part][axis];
 +	}
 +
 +	return result;
@@ -776,10 +779,13 @@
 +	{
 +		if (hud_port_frame_drawn[part])
 +		{
-+			hud_port_rects[part][0] = hud_port_frame_bounds[part][0]/width;
-+			hud_port_rects[part][1] = hud_port_frame_bounds[part][1]/height;
-+			hud_port_rects[part][2] = hud_port_frame_bounds[part][2]/width;
-+			hud_port_rects[part][3] = hud_port_frame_bounds[part][3]/height;
++			real preview_x = hud_port_preview[part][0]*scale;
++			real preview_y = hud_port_preview[part][1]*scale;
++
++			hud_port_rects[part][0] = (hud_port_frame_bounds[part][0]-preview_x)/width;
++			hud_port_rects[part][1] = (hud_port_frame_bounds[part][1]-preview_y)/height;
++			hud_port_rects[part][2] = (hud_port_frame_bounds[part][2]-preview_x)/width;
++			hud_port_rects[part][3] = (hud_port_frame_bounds[part][3]-preview_y)/height;
 +			hud_port_rects_known[part] = TRUE;
 +		}
 +	}
@@ -809,6 +815,20 @@
 +	return hud_port_view_units[0]>0.0f;
 +}
 +
++/* where the editor's finger has a part, in HUD units from where its settings
++put it: 0 when not dragged */
++void hud_port_touch_preview(
++	short part,
++	float x,
++	float y)
++{
++	if (part>0 && part<NUMBER_OF_HUD_PORT_PARTS)
++	{
++		hud_port_preview[part][0] = x;
++		hud_port_preview[part][1] = y;
++	}
++}
++
 +/* a part moved by the editor, by fractions of the view, until it is drawn
 +again where its settings now put it */
 +void hud_port_touch_shift(
@@ -828,7 +848,7 @@
  void hud_calculate_point(
  	short local_player_index,
  	struct hud_absolute_placement_definition const *absolute_placement,
-@@ -1067,6 +1248,12 @@
+@@ -1067,6 +1268,12 @@
  			placement->offset.y * scale;
  	}
  
@@ -841,7 +861,7 @@
  	if (bitmap_data)
  	{
  		switch (corner)
-@@ -1590,6 +1777,8 @@
+@@ -1590,6 +1797,8 @@
  	hud_draw_last_left = SHORT_MAX;
  	for (vertex_index = 0; vertex_index < 4; vertex_index++)
  		hud_draw_last_left = (short)MIN(hud_draw_last_left, vertices[vertex_index].position.x);
@@ -852,7 +872,7 @@
  	{
 --- a/source/interface/hud_draw.h
 +++ b/source/interface/hud_draw.h
-@@ -71,6 +71,34 @@
+@@ -71,6 +71,38 @@
  pixel32 real_alpha_intensity_to_pixel32(
  	real alpha,
  	real intensity);
@@ -880,6 +900,10 @@
 +	float *rects,
 +	float *view_units);
 +void hud_port_touch_shift(
++	short part,
++	float x,
++	float y);
++void hud_port_touch_preview(
 +	short part,
 +	float x,
 +	float y);
@@ -2135,20 +2159,22 @@
  	{
 --- a/port/linux/src/touch_input.c
 +++ b/port/linux/src/touch_input.c
-@@ -29,6 +29,12 @@
+@@ -29,6 +29,14 @@
  #endif
  #ifdef HALO_ANDROID
  int host_touch_devices(void);
 +void host_touch_hud(const float *rects, int count);
 +int host_touch_hud_moves(float *deltas);
++void host_touch_hud_preview(float *deltas);
 +/* where the HUD's parts were drawn (source/interface/hud_draw.c) */
 +unsigned char hud_port_touch_rects(float *rects, float *view_units);
 +void hud_port_touch_shift(short part, float x, float y);
++void hud_port_touch_preview(short part, float x, float y);
 +static void touch_hud_editor(void);
  #endif
  
  /* the game's (port/linux/game/touch_game.c) */
-@@ -321,6 +327,9 @@
+@@ -321,6 +329,9 @@
  		host_touch_bindings(bindings);
  	}
  	host_touch_read(state);
@@ -2158,7 +2184,7 @@
  	/* the stick moves the player through the game's input state, whatever
  	the profile's sticks do (touch_input_move), not as the left stick */
  	move_x = state[0] / 32767.0f;
-@@ -403,3 +412,93 @@
+@@ -403,3 +414,103 @@
  	host_touch_rumble(left, right);
  }
  #endif
@@ -2214,6 +2240,7 @@
 +	float rects[TOUCH_HUD_PARTS * 4];
 +	float view_units[2];
 +	float deltas[TOUCH_HUD_PARTS * 2];
++	float preview[TOUCH_HUD_PARTS * 2];
 +	int part, axis;
 +
 +	if (host_touch_hud_moves(deltas) && hud_port_touch_rects(rects, view_units))
@@ -2243,6 +2270,15 @@
 +			hud_port_touch_shift((short)(part + 1), moved[0], moved[1]);
 +		}
 +	}
++	/* (where a finger drags a part, drawn there before Save; read after the
++	moves, which end it) */
++	host_touch_hud_preview(preview);
++	if (hud_port_touch_rects(rects, view_units))
++	{
++		for (part = 0; part < TOUCH_HUD_PARTS; part++)
++			hud_port_touch_preview((short)(part + 1), preview[part * 2] * view_units[0],
++				preview[part * 2 + 1] * view_units[1]);
++	}
 +	if (hud_port_touch_rects(rects, view_units) &&
 +		(!sent_known || memcmp(rects, sent, sizeof(rects))))
 +	{
@@ -2264,7 +2300,7 @@
  port 0 rumbles. The overlay also says whether the device has a touchscreen
  and a controller (host_touch_devices), for the game's own touchscreen
  buttons.
-@@ -54,6 +55,15 @@
+@@ -54,6 +55,18 @@
  #define TOUCH_BUTTONS 16
  static int32_t touch_bindings[TOUCH_BUTTONS];
  static int touch_bindings_serial;
@@ -2277,10 +2313,13 @@
 +static int touch_hud_serial;
 +static float touch_hud_moves[TOUCH_HUD_PARTS * 2];
 +static int touch_hud_moves_waiting;
++/* where the editor's finger has each part (x, y as fractions of the screen),
++drawn there until Save's moves are read */
++static float touch_hud_preview[TOUCH_HUD_PARTS * 2];
  
  static int64_t now_ns(void)
  {
-@@ -252,3 +262,72 @@
+@@ -252,3 +265,97 @@
  	(void)cls;
  	return touch_scene;
  }
@@ -2312,6 +2351,7 @@
 +		memcpy(deltas, touch_hud_moves, sizeof(touch_hud_moves));
 +		memset(touch_hud_moves, 0, sizeof(touch_hud_moves));
 +		touch_hud_moves_waiting = 0;
++		memset(touch_hud_preview, 0, sizeof(touch_hud_preview));
 +	}
 +	pthread_mutex_unlock(&touch_lock);
 +	return waiting;
@@ -2353,20 +2393,45 @@
 +	touch_hud_moves_waiting = 1;
 +	pthread_mutex_unlock(&touch_lock);
 +}
++
++/* the guest's: where the editor's finger has the parts, into deltas[10] */
++void host_touch_hud_preview(float *deltas)
++{
++	pthread_mutex_lock(&touch_lock);
++	memcpy(deltas, touch_hud_preview, sizeof(touch_hud_preview));
++	pthread_mutex_unlock(&touch_lock);
++}
++
++/* the editor, while a finger drags a part: how far each part is from where
++the game draws it (x, y as fractions of the screen) */
++JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeHudPreview(JNIEnv *env, jclass cls,
++	jfloatArray deltas)
++{
++	float copy[TOUCH_HUD_PARTS * 2];
++
++	(void)cls;
++	if (!deltas || (*env)->GetArrayLength(env, deltas) < TOUCH_HUD_PARTS * 2)
++		return;
++	(*env)->GetFloatArrayRegion(env, deltas, 0, TOUCH_HUD_PARTS * 2, (jfloat *)copy);
++	pthread_mutex_lock(&touch_lock);
++	memcpy(touch_hud_preview, copy, sizeof(copy));
++	pthread_mutex_unlock(&touch_lock);
++}
 --- a/port/android/host_imports.list
 +++ b/port/android/host_imports.list
-@@ -66,6 +66,8 @@
+@@ -66,6 +66,9 @@
  host_touch_scene
  host_touch_bindings
  host_touch_devices
 +host_touch_hud
 +host_touch_hud_moves
++host_touch_hud_preview
  host_https_get
  
  host_errno
 --- a/port/android/guest/runtime/guest_host.h
 +++ b/port/android/guest/runtime/guest_host.h
-@@ -148,6 +148,11 @@
+@@ -148,6 +148,13 @@
  /* the overlay's devices: 1, a touchscreen; 2, a game controller; 0 until it
  has looked */
  int host_touch_devices(void);
@@ -2375,6 +2440,8 @@
 +void host_touch_hud(const float *rects, int count);
 +/* the layout editor's moves of the HUD's parts into deltas[10]; 0 when none */
 +int host_touch_hud_moves(float *deltas);
++/* where the layout editor's finger has the HUD's parts, into deltas[10] */
++void host_touch_hud_preview(float *deltas);
  
  /* ---------- the server browser's master servers (host_https.c) */
  
@@ -2393,16 +2460,17 @@
      private static final float TOOLBAR_RADIUS = 28;
      private static final float OPTIONS_RADIUS = TouchLayout.OPTIONS_RADIUS;
      /** the editor's items, this far apart */
-@@ -161,6 +167,8 @@
+@@ -161,6 +167,9 @@
      private static native int nativeScene();
      private static native int nativeBindings(int[] controls);
      private static native void nativeDevices(boolean touchscreen, boolean controller);
 +    private static native int nativeHudRects(float[] rects);
 +    private static native void nativeHudMove(float[] deltas);
++    private static native void nativeHudPreview(float[] deltas);
  
      private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
      private final SharedPreferences preferences;
-@@ -223,6 +231,12 @@
+@@ -223,6 +232,12 @@
      private final int[] bindings = DEFAULT_BINDINGS.clone();
      private final int[] bindingsRead = new int[bindings.length];
      private int bindingsSerial;
@@ -2415,7 +2483,7 @@
  
      /** reads what the game says every frame: when to show, the buttons' names, and the rumble */
      private final Runnable poll = new Runnable() {
-@@ -233,6 +247,7 @@
+@@ -233,6 +248,7 @@
              scene = nativeScene();
              updateShowing();
              readBindings();
@@ -2423,7 +2491,7 @@
              updateRumble();
              postDelayed(this, POLL_MS);
          }
-@@ -552,7 +567,7 @@
+@@ -552,7 +568,7 @@
              return TOOLBAR_IMPORT;
          if (inside(x, y, middle + EDITOR_SPACING, editorY(), toolbarRadius(OPTIONS_RADIUS)))
              return TOOLBAR_SAVE;
@@ -2432,7 +2500,7 @@
      }
  
      /** the control under a point (logical units), or NOTHING */
-@@ -742,6 +757,7 @@
+@@ -742,6 +758,7 @@
              int target = hit(x, y);
              if (target == TOOLBAR_SAVE) {
                  if (saveLayout()) {
@@ -2440,7 +2508,7 @@
                      reset();
                      editing = false;
                      performClick();
-@@ -755,6 +771,12 @@
+@@ -755,6 +772,12 @@
                  dragControl = target;
                  dragOffsetX = x - optionsX();
                  dragOffsetY = y - optionsY();
@@ -2453,7 +2521,7 @@
              } else if (target >= 0) {
                  dragPointer = id;
                  dragControl = target;
-@@ -768,6 +790,8 @@
+@@ -768,6 +791,8 @@
                  float y = logical(event.getY(pointer)) - dragOffsetY;
                  if (dragControl == TOOLBAR_OPTIONS)
                      layout.moveOptions(x, y);
@@ -2462,7 +2530,7 @@
                  else
                      layout.move(dragControl, x, y);
              }
-@@ -778,6 +802,114 @@
+@@ -778,6 +803,119 @@
          }
      }
  
@@ -2538,6 +2606,8 @@
 +        float drawnY = (hudRects[part * 4 + 1] + hudRects[part * 4 + 3]) / 2 * logicalHeight;
 +        hudMoves[part * 2] = (left + width / 2 - drawnX) / logicalWidth;
 +        hudMoves[part * 2 + 1] = (top + height / 2 - drawnY) / logicalHeight;
++        // (the game draws the part under the finger at once, to place it by eye)
++        nativeHudPreview(hudMoves);
 +    }
 +
 +    /** Save: the game writes the moves to the HUD settings (TRUCOS, HUD) */
@@ -2559,34 +2629,38 @@
 +            float right = left + hudWidth(part);
 +            float bottom = top + hudHeight(part);
 +            boolean dragged = dragControl == HUD_PART - part;
++            // (nearly clear: the part itself shows inside, where the game draws it)
 +            paint.setStyle(Paint.Style.FILL);
-+            paint.setColor(dragged ? 0x6683d9ff : 0x3383d9ff);
++            paint.setColor(dragged ? 0x2283d9ff : 0x1183d9ff);
 +            canvas.drawRoundRect(left, top, right, bottom, 8, 8, paint);
 +            paint.setStyle(Paint.Style.STROKE);
 +            paint.setStrokeWidth(2);
 +            paint.setColor(dragged ? 0xffaee7ff : 0xcc83d9ff);
 +            canvas.drawRoundRect(left, top, right, bottom, 8, 8, paint);
++            // (the name outside the box, above it, or below it at the top of the screen)
 +            paint.setStyle(Paint.Style.FILL);
 +            paint.setColor(Color.WHITE);
 +            paint.setTextAlign(Paint.Align.CENTER);
 +            paint.setTextSize(12);
-+            canvas.drawText(HUD_NAMES[part], (left + right) / 2, (top + bottom) / 2 + 4, paint);
++            float nameY = top >= 16 ? top - 4 : bottom + 13;
++            canvas.drawText(HUD_NAMES[part], (left + right) / 2, nameY, paint);
 +        }
 +    }
 +
      // ---------- the buttons' names, from the player's profile
  
      private void readBindings() {
-@@ -862,6 +994,8 @@
+@@ -862,6 +1000,9 @@
                      post(this::showGeneral);
                  } else if (which == 1) {
                      editing = true;
 +                    Arrays.fill(hudMoves, 0);
++                    nativeHudPreview(hudMoves);
 +                    readHud();
                      setHidden(false);
                  } else {
                      post(this::showSensitivity);
-@@ -1273,6 +1407,8 @@
+@@ -1273,6 +1414,8 @@
              paint.setTextSize(14);
              canvas.drawText("Drag the controls and Options, then push Save", middle,
                  editorY() + toolbarRadius(OPTIONS_RADIUS) + 24, paint);
@@ -2595,7 +2669,7 @@
          } else {
              toolbarItem(canvas, logicalWidth / 2, toolbarY(), TOOLBAR_RADIUS, hidden ? "Touch" : "Hide", false);
          }
-@@ -1296,6 +1432,8 @@
+@@ -1296,6 +1439,8 @@
              return;
          canvas.save();
          canvas.scale(scale, scale);
