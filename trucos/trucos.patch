@@ -310,7 +310,7 @@
  }
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
-@@ -553,6 +553,137 @@
+@@ -553,6 +553,140 @@
  		"profile starts at The Pillar of Autumn and opens each level as the one\n"
  		"before it is finished, as on the Xbox. Profiles already made keep their\n"
  		"progress; the console's profile_reset_campaign starts one over." },
@@ -433,6 +433,9 @@
 +	{ "hud.radar_fy", _config_integer, "0", "HALO_HUD_RADAR_FY", _environment_value, _platform_all,
 +		"The fine adjustment of hud.radar_y, added to it: so 625 is 600 and 25.\n"
 +		"In HUD units (the tags' 640x480). 0: none." },
++	{ "hud.radar_sweep", _config_boolean, "true", "HALO_HUD_RADAR_SWEEP", _environment_value, _platform_all,
++		"Draws a turning sweep, a cross and rings over the radar (pause menu,\n"
++		"SETTINGS, TRUCOS, HUD: RADAR). false: the maps' radar alone." },
 +	{ "hud.ammo_fx", _config_integer, "0", "HALO_HUD_AMMO_FX", _environment_value, _platform_all,
 +		"The fine adjustment of hud.ammo_x, added to it: so 625 is 600 and 25.\n"
 +		"In HUD units (the tags' 640x480). 0: none." },
@@ -471,7 +474,7 @@
  /* the PC version's pause menu's row pitch (30 apart). The pause box's frames
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
-@@ -502,6 +502,152 @@
+@@ -502,6 +502,155 @@
      ],
  }
  
@@ -512,7 +515,7 @@
 +        ("ARMAS Y VEHICULOS:", "network_setup/cheats_items",
 +         "Hace caer armas, vehiculos y powerups cerca de ti,\\no te vuelve invisible. Funcionan como botones."),
 +        ("HUD: RADAR:", "network_setup/cheats_hud_radar",
-+         "Mueve el radar a otro lugar de la pantalla."),
++         "El barrido del radar, y moverlo a otro lugar\nde la pantalla."),
 +        ("HUD: ESCUDO:", "network_setup/cheats_hud_shield",
 +         "Mueve la barra de escudo a otro lugar de la pantalla."),
 +        ("HUD: VIDA:", "network_setup/cheats_hud_health",
@@ -565,7 +568,10 @@
 +}
 +SCREENS["network_setup/cheats_hud_radar"] = {
 +    "screen": "cheats_hud_radar_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
-+    "rows": _hud_rows("radar", "RADAR", "Donde esta el radar."),
++    "rows": [
++        ("RADAR CON BARRIDO:", "hud.radar_sweep", ON_OFF,
++         "Un barrido que gira, una cruz y anillos azules\nsobre el radar. OFF: el radar original.", None),
++    ] + _hud_rows("radar", "RADAR", "Donde esta el radar."),
 +}
 +SCREENS["network_setup/cheats_hud_shield"] = {
 +    "screen": "cheats_hud_shield_screen", "header": ("header_hud", f"{PE}/network_setup/cheats/header_hud"), "spacing": 30,
@@ -626,7 +632,17 @@
  # would drop the game (internet play) or are for the main menu (the router,
 --- a/source/interface/hud_draw.c
 +++ b/source/interface/hud_draw.c
-@@ -389,6 +389,8 @@
+@@ -108,6 +108,9 @@
+ #include "cache_file_formats.h" /* port: port/linux/game/cache_file_formats.c */
+ #include "custom_edition_cache.h"
+ #include "view_fov.h" /* port: port/linux/game/view_fov.c */
++#include "game/game_globals.h" /* port: the radar's sweep (hud_port_radar_sweep) */
++#include "scenario/scenario.h"
++#include "bitmaps/bitmap_group_lookup.h"
+ 
+ /* ---------- constants */
+ 
+@@ -389,6 +392,8 @@
  	real_rectangle2d const *clip,
  	real_rectangle2d *bounds,
  	boolean is_interface_bitmap);
@@ -635,7 +651,7 @@
  static void hud_draw_bitmap_internal(
  	void *meter_parameters,
  	struct bitmap_data const *bitmap,
-@@ -969,6 +971,7 @@
+@@ -969,6 +974,7 @@
  		}
  	}
  
@@ -643,7 +659,7 @@
  	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
  
  	match_assert_stack_frame("c:\\halo\\SOURCE\\interface\\hud_draw.c", 1372);
-@@ -999,6 +1002,204 @@
+@@ -999,6 +1005,382 @@
  	return real_argb_color_to_pixel32(&color);
  }
  
@@ -845,10 +861,188 @@
 +	}
 +}
 +
++/* ---------- port: the radar's sweep (TRUCOS, HUD: RADAR, hud.radar_sweep)
++
++Over the motion sensor, in light blue: a sweep turning once every three
++seconds, a cross and two rings. The shapes are plain quads of the white bitmap
++of the maps' default textures (the one the cinematics' letterbox is drawn
++with), tinted by their corners' colors. Sizes are in the HUD's units (the
++tags' 640x480). */
++
++int config_boolean(const char *name);
++
++#define HUD_PORT_ACCENT 0x7FCFFF
++
++static pixel32 hud_port_color(
++	real alpha,
++	pixel32 rgb)
++{
++	return ((pixel32)PIN(fast_ftol_C(alpha*255.0f), 0, 255)<<24) | (rgb & 0x00FFFFFF);
++}
++
++/* the white bitmap of the maps' default 2D textures (multiplicative: white) */
++static struct bitmap_data *hud_port_white_bitmap(
++	void)
++{
++	struct game_globals *game_globals = scenario_get_game_globals();
++	struct game_globals_rasterizer_data *rasterizer_data;
++	long group_index;
++
++	if (!game_globals || game_globals->rasterizer_data.count<1)
++		return NULL;
++	rasterizer_data = TAG_BLOCK_GET_ELEMENT(&game_globals->rasterizer_data, 0, struct game_globals_rasterizer_data);
++	group_index = rasterizer_data->default_textures[0].index;
++	if (group_index==NONE)
++		return NULL;
++
++	return bitmap_group_try_and_get_bitmap(group_index, 1);
++}
++
++/* four corners, around */
++static void hud_port_quad(
++	real_point2d const *points,
++	pixel32 const *colors)
++{
++	struct bitmap_data *map = hud_port_white_bitmap();
++	struct rasterizer_dynamic_screen_geometry_parameters parameters;
++	struct dynamic_screen_vertex vertices[4];
++	short vertex_index;
++
++	if (!map)
++		return;
++	for (vertex_index = 0; vertex_index<4; vertex_index++)
++	{
++		vertices[vertex_index].position = points[vertex_index];
++		vertices[vertex_index].texture_coordinates.x = 0.5f;
++		vertices[vertex_index].texture_coordinates.y = 0.5f;
++		vertices[vertex_index].color = colors[vertex_index];
++	}
++	csmemset(&parameters, 0, sizeof(parameters));
++	parameters.map_texture_scale[0].i = 1.0f;
++	parameters.map_texture_scale[0].j = 1.0f;
++	parameters.map_scale[0].i = 1.0f;
++	parameters.map_scale[0].j = 1.0f;
++	parameters.framebuffer_blend_function = _shader_framebuffer_blend_function_alpha_blend;
++	parameters.map[0] = map;
++	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
++
++	return;
++}
++
++static void hud_port_rectangle(
++	real x,
++	real y,
++	real width,
++	real height,
++	pixel32 color)
++{
++	real_point2d points[4];
++	pixel32 colors[4];
++
++	points[0].x = x; points[0].y = y;
++	points[1].x = x+width; points[1].y = y;
++	points[2].x = x+width; points[2].y = y+height;
++	points[3].x = x; points[3].y = y+height;
++	colors[0] = colors[1] = colors[2] = colors[3] = color;
++	hud_port_quad(points, colors);
++
++	return;
++}
++
++/* a ring around (x, y), radius and thickness in pixels */
++static void hud_port_ring(
++	real x,
++	real y,
++	real radius,
++	real thickness,
++	pixel32 color,
++	short segment_count)
++{
++	short index;
++
++	for (index = 0; index<segment_count; index++)
++	{
++		real a0 = (2.0f*_pi)*index/segment_count;
++		real a1 = (2.0f*_pi)*(index+1)/segment_count;
++		real inner = radius-thickness/2, outer = radius+thickness/2;
++		real_point2d points[4];
++		pixel32 colors[4];
++
++		points[0].x = x+(real)cos(a0)*inner; points[0].y = y+(real)sin(a0)*inner;
++		points[1].x = x+(real)cos(a0)*outer; points[1].y = y+(real)sin(a0)*outer;
++		points[2].x = x+(real)cos(a1)*outer; points[2].y = y+(real)sin(a1)*outer;
++		points[3].x = x+(real)cos(a1)*inner; points[3].y = y+(real)sin(a1)*inner;
++		colors[0] = colors[1] = colors[2] = colors[3] = color;
++		hud_port_quad(points, colors);
++	}
++
++	return;
++}
++
++void hud_port_radar_sweep(
++	short local_player_index,
++	point2d const *center,
++	real radius_units)
++{
++	static unsigned long changes = 0;
++	static boolean read = FALSE;
++	static boolean enabled = FALSE;
++	real s, r, x, y;
++	real line;
++	real theta;
++	short slice;
++	short part = hud_port_part;
++
++	if (!read || changes!=config_changes())
++	{
++		read = TRUE;
++		changes = config_changes();
++		enabled = config_boolean("hud.radar_sweep")!=0;
++	}
++	if (!enabled || !center)
++		return;
++	s = hud_globals_get_scale(local_player_count()>1);
++	if (s<=0.0f)
++		s = 1.0f;
++	if (radius_units<15.0f || radius_units>120.0f)
++		radius_units = 46.0f;
++	r = radius_units*s;
++	x = (real)center->x;
++	y = (real)center->y;
++	line = MAX(1.0f, 0.9f*s);
++	hud_port_part = _hud_port_part_none;
++
++	/* the sweep: a fan behind its edge, fading, a turn every three seconds */
++	theta = (2.0f*_pi)*(real)(game_time_get()%90)/90.0f;
++	for (slice = 0; slice<6; slice++)
++	{
++		real a0 = theta-0.12f*slice, a1 = theta-0.12f*(slice+1);
++		real_point2d points[4];
++		pixel32 colors[4];
++
++		points[0].x = x; points[0].y = y;
++		points[1].x = x+(real)cos(a0)*r; points[1].y = y+(real)sin(a0)*r;
++		points[2].x = x+(real)cos(a1)*r; points[2].y = y+(real)sin(a1)*r;
++		points[3].x = x; points[3].y = y;
++		colors[0] = colors[3] = hud_port_color(0.30f*(1.0f-slice/6.0f), HUD_PORT_ACCENT);
++		colors[1] = colors[2] = hud_port_color(0.42f*(1.0f-slice/6.0f), HUD_PORT_ACCENT);
++		hud_port_quad(points, colors);
++	}
++
++	/* the cross and the rings */
++	hud_port_rectangle(x-r, y-line/2, 2*r, line, hud_port_color(0.2f, HUD_PORT_ACCENT));
++	hud_port_rectangle(x-line/2, y-r, line, 2*r, hud_port_color(0.2f, HUD_PORT_ACCENT));
++	hud_port_ring(x, y, r*0.5f, line, hud_port_color(0.3f, HUD_PORT_ACCENT), 16);
++	hud_port_ring(x, y, r, 1.5f*line, hud_port_color(0.75f, HUD_PORT_ACCENT), 24);
++	hud_port_part = part;
++
++	return;
++}
++
  void hud_calculate_point(
  	short local_player_index,
  	struct hud_absolute_placement_definition const *absolute_placement,
-@@ -1067,6 +1268,12 @@
+@@ -1067,6 +1449,12 @@
  			placement->offset.y * scale;
  	}
  
@@ -861,7 +1055,7 @@
  	if (bitmap_data)
  	{
  		switch (corner)
-@@ -1590,6 +1797,8 @@
+@@ -1590,6 +1978,8 @@
  	hud_draw_last_left = SHORT_MAX;
  	for (vertex_index = 0; vertex_index < 4; vertex_index++)
  		hud_draw_last_left = (short)MIN(hud_draw_last_left, vertices[vertex_index].position.x);
@@ -872,7 +1066,7 @@
  	{
 --- a/source/interface/hud_draw.h
 +++ b/source/interface/hud_draw.h
-@@ -71,6 +71,38 @@
+@@ -71,6 +71,44 @@
  pixel32 real_alpha_intensity_to_pixel32(
  	real alpha,
  	real intensity);
@@ -907,6 +1101,12 @@
 +	short part,
 +	float x,
 +	float y);
++/* port: the radar's sweep, rings and cross over the motion sensor, centred on
++its blips' centre (TRUCOS, HUD: RADAR, hud.radar_sweep) */
++void hud_port_radar_sweep(
++	short local_player_index,
++	point2d const *center,
++	real radius_units);
 +
  void hud_calculate_point(
  	short local_player_index,
@@ -945,7 +1145,19 @@
  				if (unit_count == 0 &&
  					!TEST_FLAG(
  						unit_hud_globals->script_flags,
-@@ -1219,6 +1223,7 @@
+@@ -1209,6 +1213,11 @@
+ 						local_player_index,
+ 						local_player_count() > 1,
+ 						&corner);
++					/* port: the radar's sweep and rings over it */
++					hud_port_radar_sweep(
++						local_player_index,
++						&corner,
++						hud_globals->defaults.motion_sensor_scale);
+ 					/* port: the text chat goes above it: the top of its circle, as
+ 					far above the blips' centre as the picture's left edge is left
+ 					of it (the picture is taller than the circle) */
+@@ -1219,6 +1228,7 @@
  					}
  				}
  
