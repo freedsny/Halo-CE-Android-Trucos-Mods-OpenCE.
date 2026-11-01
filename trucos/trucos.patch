@@ -1241,7 +1241,7 @@
  
  	if (distance > 15.f)
  	{
-@@ -807,6 +823,943 @@
+@@ -807,6 +823,984 @@
  	return;
  }
  
@@ -1480,6 +1480,12 @@
 +(and a tenth of the level's part) is from an island (a roof, a rock): the
 +target's next floor is tried */
 +#define GUIDE_MAP_ISLAND_SURFACES 2000
++/* the player walks up slopes the AI does not (the map's walkable surfaces
++are the AI's): a surface at most this steep (the cosine of its slope, about
++45 degrees) is walkable too, at a higher cost, so that the AI's ways are
++taken where there are */
++#define GUIDE_MAP_PLAYER_SLOPE 0.7f
++#define GUIDE_MAP_SLOPE_COST 1.5f
 +
 +enum
 +{
@@ -1520,6 +1526,14 @@
 +cannot tell */
 +static real hud_port_guide_walking_distance = -1.f;
 +
++/* what a map is for: the objective's volume (its middle: the point of it
++nearest the player moves as the player does), else the target */
++static real_point3d const *hud_port_guide_map_key(
++	real_point3d const *target)
++{
++	return hud_port_guide_target_is_volume ? &hud_port_guide_target_center : target;
++}
++
 +static struct collision_bsp const *hud_port_guide_map_bsp(
 +	struct structure_bsp const **structure_result)
 +{
@@ -1531,6 +1545,25 @@
 +	return TAG_BLOCK_GET_ELEMENT(&structure->collision_bsp, 0, struct collision_bsp);
 +}
 +
++/* how flat a surface is: the upward part of its plane's normal (1 flat, 0 a
++wall, negative a ceiling) */
++static real hud_port_guide_map_slope(
++	struct collision_bsp const *bsp,
++	long surface_index)
++{
++	struct collision_surface const *surface = TAG_BLOCK_GET_ELEMENT(&bsp->surfaces, surface_index,
++		struct collision_surface);
++	long plane_index = surface->plane_designator & LONG_MAX;
++	real_plane3d const *plane;
++	real up;
++
++	if (!VALID_INDEX(plane_index, bsp->bsp3d.planes.count))
++		return -1.f;
++	plane = TAG_BLOCK_GET_ELEMENT(&bsp->bsp3d.planes, plane_index, real_plane3d);
++	up = plane->n.k;
++	return (surface->plane_designator & LONG_MIN) ? -up : up;
++}
++
 +/* the walkable surfaces next to a surface, and the middles of the edges
 +between them, as ai/path.c's build_path_edges_for_surface walks its edges */
 +static short hud_port_guide_map_neighbors(
@@ -1538,7 +1571,8 @@
 +	struct collision_bsp const *bsp,
 +	long surface_index,
 +	long *neighbors,
-+	real_point3d *middles)
++	real_point3d *middles,
++	real *costs)
 +{
 +	byte const *pathfinding_surfaces = structure->pathfinding_surfaces.address;
 +	struct collision_surface const *surface;
@@ -1569,7 +1603,8 @@
 +		adjacent = edge->surface_indices[!right];
 +		if (adjacent!=NONE && VALID_INDEX(adjacent, bsp->surfaces.count) &&
 +			VALID_INDEX(adjacent, structure->pathfinding_surfaces.count) &&
-+			TEST_FLAG(pathfinding_surfaces[adjacent], GUIDE_MAP_WALKABLE_BIT))
++			(TEST_FLAG(pathfinding_surfaces[adjacent], GUIDE_MAP_WALKABLE_BIT) ||
++				hud_port_guide_map_slope(bsp, adjacent)>=GUIDE_MAP_PLAYER_SLOPE))
 +		{
 +			struct collision_vertex const *start = TAG_BLOCK_GET_ELEMENT(&bsp->vertices,
 +				edge->vertex_indices[0], struct collision_vertex);
@@ -1577,6 +1612,8 @@
 +				edge->vertex_indices[1], struct collision_vertex);
 +
 +			neighbors[count] = adjacent;
++			costs[count] = TEST_FLAG(pathfinding_surfaces[adjacent], GUIDE_MAP_WALKABLE_BIT) ?
++				1.f : GUIDE_MAP_SLOPE_COST;
 +			middles[count].x = (start->point.x+end->point.x)*0.5f;
 +			middles[count].y = (start->point.y+end->point.y)*0.5f;
 +			middles[count].z = (start->point.z+end->point.z)*0.5f;
@@ -1710,7 +1747,7 @@
 +	hud_port_guide_map.surface_count = count;
 +	hud_port_guide_map.structure_bsp_index = global_structure_bsp_index_get();
 +	hud_port_guide_map.goal_surface_index = goal_surface_index;
-+	hud_port_guide_map.target = *target;
++	hud_port_guide_map.target = *hud_port_guide_map_key(target);
 +	hud_port_guide_map.candidate_index = candidate_index;
 +	hud_port_guide_map.distances[goal_surface_index] = 0.f;
 +	hud_port_guide_map.nexts[goal_surface_index] = NONE;
@@ -1755,10 +1792,11 @@
 +	{
 +		long neighbors[MAXIMUM_EDGES_PER_COLLISION_SURFACE];
 +		real_point3d middles[MAXIMUM_EDGES_PER_COLLISION_SURFACE];
++		real costs[MAXIMUM_EDGES_PER_COLLISION_SURFACE];
 +		long surface_index = hud_port_guide_map_pop();
 +		real_point3d anchor = hud_port_guide_map.anchors[surface_index];
 +		real distance = hud_port_guide_map.distances[surface_index];
-+		short count = hud_port_guide_map_neighbors(structure, bsp, surface_index, neighbors, middles);
++		short count = hud_port_guide_map_neighbors(structure, bsp, surface_index, neighbors, middles, costs);
 +		short index;
 +
 +		hud_port_guide_map.reached_count++;
@@ -1769,7 +1807,7 @@
 +
 +			if (hud_port_guide_map.places[neighbor]==GUIDE_MAP_DONE)
 +				continue;
-+			cost = distance+distance3d(&anchor, &middles[index]);
++			cost = distance+distance3d(&anchor, &middles[index])*costs[index];
 +			if (cost<hud_port_guide_map.distances[neighbor])
 +			{
 +				hud_port_guide_map.distances[neighbor] = cost;
@@ -1800,7 +1838,8 @@
 +{
 +	return hud_port_guide_map.active &&
 +		hud_port_guide_map.structure_bsp_index==global_structure_bsp_index_get() &&
-+		distance_squared3d(&hud_port_guide_map.target, target)<=GUIDE_MAP_TARGET_MOVED*GUIDE_MAP_TARGET_MOVED;
++		distance_squared3d(&hud_port_guide_map.target, hud_port_guide_map_key(target))<=
++			GUIDE_MAP_TARGET_MOVED*GUIDE_MAP_TARGET_MOVED;
 +}
 +
 +/* whether the map is done and reaches a surface */
@@ -1992,15 +2031,17 @@
 +			path_state_destination(&hud_port_guide_path_state, &waypoint, waypoint_surface_index, 0.5f);
 +			if (!path_state_find(&hud_port_guide_path_state))
 +			{
-+				if (hud_port_guide_path_state.closest_node_index==NONE)
-+					goto camino_normal;
-+				hud_port_guide_path_state.destination.target_radius = 10000.f;
++				/* (a slope the AI does not walk, between: straight at the waypoint,
++				which the map knows is the way) */
 +				route->status = 'N';
++				route->steps[0] = waypoint;
++				route->step_count = 1;
++				found = TRUE;
++				goto listo;
 +			}
 +			goto construir;
 +		}
 +	}
-+camino_normal:
 +	route->status = 'P';
 +	/* the target's floors one after another until one can be walked to (a floor
 +	found from higher up can be a roof); with none, part of the way to the first */
@@ -2185,7 +2226,7 @@
  void hud_render_nav_points(
  	short local_player_index)
  {
-@@ -902,6 +1855,8 @@
+@@ -902,6 +1896,8 @@
  				nav_point->nav_index,
  				nav_point->screen_type);
  		}
