@@ -1205,17 +1205,21 @@
  #include "game/game_engine.h"
  #include "game/players.h"
  #include "networking/network_connection.h"
-@@ -124,6 +125,9 @@
+@@ -124,6 +125,13 @@
  #include "scenario/scenario_definitions.h"
  #include "units/units.h"
  #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 +#include "ai/path.h" /* port: the guide arrow's route (hud_port_guide_route) */
 +#include "game/game.h"
 +#include "units/bipeds.h" /* (biped_try_and_get) */
++#include "physics/collision_bsp.h" /* port: the guide arrow's distance map */
++#include "physics/collision_bsp_definitions.h"
++#include "structures/structure_bsp_definitions.h"
++#include <stdlib.h>
  
  /* ---------- constants */
  
-@@ -675,6 +679,10 @@
+@@ -675,6 +683,10 @@
  	return render_type;
  }
  
@@ -1226,7 +1230,7 @@
  void custom_render_nav_point(
  	short local_player_index,
  	real_point3d const *position_pointer,
-@@ -701,6 +709,10 @@
+@@ -701,6 +713,10 @@
  		unit_get_camera_position(local_player_get_player_index(local_player_index) == NONE ? NONE : player_get(local_player_get_player_index(local_player_index))->unit_index, &cam_pos);
  		distance = distance3d(&cam_pos, position_pointer);
  	}
@@ -1237,7 +1241,7 @@
  
  	if (distance > 15.f)
  	{
-@@ -807,6 +819,420 @@
+@@ -807,6 +823,906 @@
  	return;
  }
  
@@ -1451,6 +1455,434 @@
 +	return FALSE;
 +}
 +
++/* port: the guide arrow's distance map (the GPS at any distance). The AI's
++pathfinder looks at a fixed number of floor pieces in a search, so a target far
++away is found only part of the way, and that part can lead to a dead end. The
++distance map walks the whole walkable floor of the loaded part of the level
++once for each target, outward from the target's floor (Dijkstra's algorithm),
++a few thousand pieces a tick so that the game never stops, and notes for each
++piece the walking distance to the target and the next piece toward it. The
++arrow then follows that chain from the player's floor some way toward the
++target, and asks the pathfinder only for the short way there. The floor
++pieces, their neighbors and which can be walked are the map's own, those the
++AI walks on (the collision bsp's surfaces and edges, and the structure's
++pathfinding surfaces). Distances are in world units (3.048 meters). */
++#define GUIDE_MAP_STEPS_PER_TICK 1500
++#define GUIDE_MAP_WAYPOINT_DISTANCE 8.f
++#define GUIDE_MAP_TARGET_MOVED 3.f
++#define GUIDE_MAP_MAXIMUM_CANDIDATES 3
++#define GUIDE_MAP_UNSEEN (-1L)
++#define GUIDE_MAP_DONE (-2L)
++#define GUIDE_MAP_FAR 1.0e30f
++#define GUIDE_MAP_WALKABLE_BIT 6 /* (ai/path.c's _pathfinding_surface_walkable_bit) */
++
++enum
++{
++	_guide_map_none,
++	_guide_map_near,
++	_guide_map_waypoint
++};
++
++static struct
++{
++	/* each surface's walking distance to the target, the next surface toward
++	it, the point it is left by toward it (the middle of the edge to the next
++	one, or the target's floor), and its place in the search's heap (or
++	GUIDE_MAP_UNSEEN, or GUIDE_MAP_DONE once its distance is final) */
++	long capacity;
++	real *distances;
++	long *nexts;
++	real_point3d *anchors;
++	long *places;
++	long *heap;
++	long heap_count;
++	long surface_count;
++	short structure_bsp_index;
++	long goal_surface_index;
++	real_point3d target;
++	short candidate_index;
++	boolean active;
++	boolean complete;
++	long last_tick;
++	long reached_count;
++	long started_tick;
++	unsigned long milliseconds;
++} hud_port_guide_map;
++
++unsigned long system_milliseconds(void); /* (cseries_windows.h) */
++
++/* the walking distance the arrow shows, from the map; negative when the map
++cannot tell */
++static real hud_port_guide_walking_distance = -1.f;
++
++static struct collision_bsp const *hud_port_guide_map_bsp(
++	struct structure_bsp const **structure_result)
++{
++	struct structure_bsp const *structure = global_structure_bsp_get();
++
++	*structure_result = structure;
++	if (!structure || structure->collision_bsp.count<1)
++		return NULL;
++	return TAG_BLOCK_GET_ELEMENT(&structure->collision_bsp, 0, struct collision_bsp);
++}
++
++/* the walkable surfaces next to a surface, and the middles of the edges
++between them, as ai/path.c's build_path_edges_for_surface walks its edges */
++static short hud_port_guide_map_neighbors(
++	struct structure_bsp const *structure,
++	struct collision_bsp const *bsp,
++	long surface_index,
++	long *neighbors,
++	real_point3d *middles)
++{
++	byte const *pathfinding_surfaces = structure->pathfinding_surfaces.address;
++	struct collision_surface const *surface;
++	long edge_index;
++	short edge_count = 0;
++	short count = 0;
++
++	if (!VALID_INDEX(surface_index, bsp->surfaces.count))
++		return 0;
++	surface = TAG_BLOCK_GET_ELEMENT(&bsp->surfaces, surface_index, struct collision_surface);
++	edge_index = surface->first_edge_index;
++	do
++	{
++		struct collision_edge const *edge;
++		boolean right;
++		long adjacent;
++
++		if (!collision_surface_edge_ring_continues(bsp, edge_index, edge_count))
++			break;
++		edge = TAG_BLOCK_GET_ELEMENT(&bsp->edges, edge_index, struct collision_edge);
++		if (!VALID_INDEX(edge->vertex_indices[0], bsp->vertices.count) ||
++			!VALID_INDEX(edge->vertex_indices[1], bsp->vertices.count))
++		{
++			break;
++		}
++		edge_count++;
++		right = surface_index==edge->surface_indices[1];
++		adjacent = edge->surface_indices[!right];
++		if (adjacent!=NONE && VALID_INDEX(adjacent, bsp->surfaces.count) &&
++			VALID_INDEX(adjacent, structure->pathfinding_surfaces.count) &&
++			TEST_FLAG(pathfinding_surfaces[adjacent], GUIDE_MAP_WALKABLE_BIT))
++		{
++			struct collision_vertex const *start = TAG_BLOCK_GET_ELEMENT(&bsp->vertices,
++				edge->vertex_indices[0], struct collision_vertex);
++			struct collision_vertex const *end = TAG_BLOCK_GET_ELEMENT(&bsp->vertices,
++				edge->vertex_indices[1], struct collision_vertex);
++
++			neighbors[count] = adjacent;
++			middles[count].x = (start->point.x+end->point.x)*0.5f;
++			middles[count].y = (start->point.y+end->point.y)*0.5f;
++			middles[count].z = (start->point.z+end->point.z)*0.5f;
++			count++;
++		}
++		if (edge_count>=MAXIMUM_EDGES_PER_COLLISION_SURFACE)
++			break;
++		edge_index = edge->edge_indices[right];
++	}
++	while (edge_index!=surface->first_edge_index);
++
++	return count;
++}
++
++static void hud_port_guide_map_sift_up(
++	long place)
++{
++	long *heap = hud_port_guide_map.heap;
++	real const *distances = hud_port_guide_map.distances;
++	long surface_index = heap[place];
++
++	while (place>0)
++	{
++		long parent = (place-1)/2;
++
++		if (distances[heap[parent]]<=distances[surface_index])
++			break;
++		heap[place] = heap[parent];
++		hud_port_guide_map.places[heap[place]] = place;
++		place = parent;
++	}
++	heap[place] = surface_index;
++	hud_port_guide_map.places[surface_index] = place;
++}
++
++static long hud_port_guide_map_pop(
++	void)
++{
++	long *heap = hud_port_guide_map.heap;
++	real const *distances = hud_port_guide_map.distances;
++	long top = heap[0];
++	long last = heap[--hud_port_guide_map.heap_count];
++	long count = hud_port_guide_map.heap_count;
++	long place = 0;
++
++	if (count>0)
++	{
++		for (;;)
++		{
++			long child = place*2+1;
++
++			if (child>=count)
++				break;
++			if (child+1<count && distances[heap[child+1]]<distances[heap[child]])
++				child++;
++			if (distances[heap[child]]>=distances[last])
++				break;
++			heap[place] = heap[child];
++			hud_port_guide_map.places[heap[place]] = place;
++			place = child;
++		}
++		heap[place] = last;
++		hud_port_guide_map.places[last] = place;
++	}
++	hud_port_guide_map.places[top] = GUIDE_MAP_DONE;
++
++	return top;
++}
++
++/* a new map from a floor under the target; FALSE if there is no room for it */
++static boolean hud_port_guide_map_start(
++	real_point3d const *target,
++	long goal_surface_index,
++	real_point3d const *goal_point,
++	short candidate_index)
++{
++	struct structure_bsp const *structure;
++	struct collision_bsp const *bsp = hud_port_guide_map_bsp(&structure);
++	long count;
++	long index;
++
++	hud_port_guide_map.active = FALSE;
++	if (!bsp || !VALID_INDEX(goal_surface_index, bsp->surfaces.count))
++		return FALSE;
++	count = bsp->surfaces.count;
++	if (count>hud_port_guide_map.capacity)
++	{
++		/* (the room is taken once, as big as the level's part needs, and kept) */
++		free(hud_port_guide_map.distances);
++		free(hud_port_guide_map.nexts);
++		free(hud_port_guide_map.anchors);
++		free(hud_port_guide_map.places);
++		free(hud_port_guide_map.heap);
++		hud_port_guide_map.distances = malloc(count*sizeof(real));
++		hud_port_guide_map.nexts = malloc(count*sizeof(long));
++		hud_port_guide_map.anchors = malloc(count*sizeof(real_point3d));
++		hud_port_guide_map.places = malloc(count*sizeof(long));
++		hud_port_guide_map.heap = malloc(count*sizeof(long));
++		hud_port_guide_map.capacity = count;
++		if (!hud_port_guide_map.distances || !hud_port_guide_map.nexts || !hud_port_guide_map.anchors ||
++			!hud_port_guide_map.places || !hud_port_guide_map.heap)
++		{
++			free(hud_port_guide_map.distances);
++			free(hud_port_guide_map.nexts);
++			free(hud_port_guide_map.anchors);
++			free(hud_port_guide_map.places);
++			free(hud_port_guide_map.heap);
++			hud_port_guide_map.distances = NULL;
++			hud_port_guide_map.nexts = NULL;
++			hud_port_guide_map.anchors = NULL;
++			hud_port_guide_map.places = NULL;
++			hud_port_guide_map.heap = NULL;
++			hud_port_guide_map.capacity = 0;
++			error(_error_log, "guide: no memory for the distance map (%ld surfaces)", count);
++			return FALSE;
++		}
++	}
++	for (index = 0; index<count; index++)
++	{
++		hud_port_guide_map.distances[index] = GUIDE_MAP_FAR;
++		hud_port_guide_map.places[index] = GUIDE_MAP_UNSEEN;
++	}
++	hud_port_guide_map.surface_count = count;
++	hud_port_guide_map.structure_bsp_index = global_structure_bsp_index_get();
++	hud_port_guide_map.goal_surface_index = goal_surface_index;
++	hud_port_guide_map.target = *target;
++	hud_port_guide_map.candidate_index = candidate_index;
++	hud_port_guide_map.distances[goal_surface_index] = 0.f;
++	hud_port_guide_map.nexts[goal_surface_index] = NONE;
++	hud_port_guide_map.anchors[goal_surface_index] = *goal_point;
++	hud_port_guide_map.heap[0] = goal_surface_index;
++	hud_port_guide_map.places[goal_surface_index] = 0;
++	hud_port_guide_map.heap_count = 1;
++	hud_port_guide_map.active = TRUE;
++	hud_port_guide_map.complete = FALSE;
++	hud_port_guide_map.last_tick = NONE;
++	hud_port_guide_map.reached_count = 0;
++	hud_port_guide_map.started_tick = game_time_get();
++	hud_port_guide_map.milliseconds = 0;
++
++	return TRUE;
++}
++
++/* the map's work for this tick: at most GUIDE_MAP_STEPS_PER_TICK surfaces */
++static void hud_port_guide_map_step(
++	void)
++{
++	struct structure_bsp const *structure;
++	struct collision_bsp const *bsp;
++	long time = game_time_get();
++	unsigned long started;
++	long step;
++
++	if (!hud_port_guide_map.active || hud_port_guide_map.complete || time==hud_port_guide_map.last_tick)
++		return;
++	hud_port_guide_map.last_tick = time;
++	bsp = hud_port_guide_map_bsp(&structure);
++	if (!bsp || hud_port_guide_map.structure_bsp_index!=global_structure_bsp_index_get() ||
++		bsp->surfaces.count!=hud_port_guide_map.surface_count)
++	{
++		hud_port_guide_map.active = FALSE;
++		return;
++	}
++	started = system_milliseconds();
++	for (step = 0; step<GUIDE_MAP_STEPS_PER_TICK && hud_port_guide_map.heap_count>0; step++)
++	{
++		long neighbors[MAXIMUM_EDGES_PER_COLLISION_SURFACE];
++		real_point3d middles[MAXIMUM_EDGES_PER_COLLISION_SURFACE];
++		long surface_index = hud_port_guide_map_pop();
++		real_point3d anchor = hud_port_guide_map.anchors[surface_index];
++		real distance = hud_port_guide_map.distances[surface_index];
++		short count = hud_port_guide_map_neighbors(structure, bsp, surface_index, neighbors, middles);
++		short index;
++
++		hud_port_guide_map.reached_count++;
++		for (index = 0; index<count; index++)
++		{
++			long neighbor = neighbors[index];
++			real cost;
++
++			if (hud_port_guide_map.places[neighbor]==GUIDE_MAP_DONE)
++				continue;
++			cost = distance+distance3d(&anchor, &middles[index]);
++			if (cost<hud_port_guide_map.distances[neighbor])
++			{
++				hud_port_guide_map.distances[neighbor] = cost;
++				hud_port_guide_map.nexts[neighbor] = surface_index;
++				hud_port_guide_map.anchors[neighbor] = middles[index];
++				if (hud_port_guide_map.places[neighbor]==GUIDE_MAP_UNSEEN)
++				{
++					hud_port_guide_map.places[neighbor] = hud_port_guide_map.heap_count;
++					hud_port_guide_map.heap[hud_port_guide_map.heap_count++] = neighbor;
++				}
++				hud_port_guide_map_sift_up(hud_port_guide_map.places[neighbor]);
++			}
++		}
++	}
++	hud_port_guide_map.milliseconds += system_milliseconds()-started;
++	if (hud_port_guide_map.heap_count==0)
++	{
++		hud_port_guide_map.complete = TRUE;
++		error(_error_log, "guide: distance map done: %ld of %ld surfaces reached (floor %d) in %ld ticks, %lu ms of work",
++			hud_port_guide_map.reached_count, hud_port_guide_map.surface_count, hud_port_guide_map.candidate_index,
++			game_time_get()-hud_port_guide_map.started_tick+1, hud_port_guide_map.milliseconds);
++	}
++}
++
++/* whether the map is for this target (and for the part of the level loaded) */
++static boolean hud_port_guide_map_for(
++	real_point3d const *target)
++{
++	return hud_port_guide_map.active &&
++		hud_port_guide_map.structure_bsp_index==global_structure_bsp_index_get() &&
++		distance_squared3d(&hud_port_guide_map.target, target)<=GUIDE_MAP_TARGET_MOVED*GUIDE_MAP_TARGET_MOVED;
++}
++
++/* whether the map is done and reaches a surface */
++static boolean hud_port_guide_map_reaches(
++	long surface_index)
++{
++	return hud_port_guide_map.active && hud_port_guide_map.complete &&
++		VALID_INDEX(surface_index, hud_port_guide_map.surface_count) &&
++		hud_port_guide_map.places[surface_index]==GUIDE_MAP_DONE;
++}
++
++/* from the player's floor, the walking distance to the target and the point
++some way toward it along the map (_guide_map_waypoint), or that the target is
++near (_guide_map_near), or _guide_map_none when the map cannot tell */
++static short hud_port_guide_map_waypoint(
++	long start_surface_index,
++	real_point3d const *start,
++	real_point3d *waypoint,
++	long *waypoint_surface_index,
++	real *walking_distance)
++{
++	real_point3d previous;
++	real travelled = 0.f;
++	long surface_index = start_surface_index;
++	long steps = 0;
++
++	if (!hud_port_guide_map_reaches(start_surface_index))
++		return _guide_map_none;
++	*walking_distance = hud_port_guide_map.distances[start_surface_index]+
++		distance3d(start, &hud_port_guide_map.anchors[start_surface_index]);
++	previous = *start;
++	while (hud_port_guide_map.nexts[surface_index]!=NONE && travelled<GUIDE_MAP_WAYPOINT_DISTANCE &&
++		steps<hud_port_guide_map.surface_count)
++	{
++		travelled += distance3d(&previous, &hud_port_guide_map.anchors[surface_index]);
++		previous = hud_port_guide_map.anchors[surface_index];
++		surface_index = hud_port_guide_map.nexts[surface_index];
++		steps++;
++	}
++	if (hud_port_guide_map.nexts[surface_index]==NONE)
++		return _guide_map_near;
++	/* (inside the surface: between where the way comes into it and where it
++	leaves it) */
++	waypoint->x = (previous.x+hud_port_guide_map.anchors[surface_index].x)*0.5f;
++	waypoint->y = (previous.y+hud_port_guide_map.anchors[surface_index].y)*0.5f;
++	waypoint->z = (previous.z+hud_port_guide_map.anchors[surface_index].z)*0.5f;
++	*waypoint_surface_index = surface_index;
++
++	return _guide_map_waypoint;
++}
++
++/* the walking distance from where the player is now (a biped on foot knows its
++floor without a ray), for the meters shown every frame */
++static boolean hud_port_guide_map_walking(
++	long unit_index,
++	real_point3d const *target,
++	real *walking_distance)
++{
++	struct biped_datum *biped = biped_try_and_get(unit_index);
++	long surface_index;
++	real_point3d origin;
++
++	if (!hud_port_guide_map_for(target) || !biped || biped->object.parent_object_index!=NONE)
++		return FALSE;
++	surface_index = biped->biped.pathfinding_surface_index;
++	if (!hud_port_guide_map_reaches(surface_index))
++		return FALSE;
++	object_get_origin(unit_index, &origin);
++	*walking_distance = hud_port_guide_map.distances[surface_index]+
++		distance3d(&origin, &hud_port_guide_map.anchors[surface_index]);
++	return TRUE;
++}
++
++/* how the routes went, counted for debug.txt every half minute (S T P C F X B as
++the route's status; M the way to the map's waypoint, N part of it) */
++static long hud_port_guide_status_counts[128];
++static long hud_port_guide_status_logged;
++
++static void hud_port_guide_note_status(
++	char status)
++{
++	long time = game_time_get();
++
++	hud_port_guide_status_counts[(unsigned char)status & 127]++;
++	if (time-hud_port_guide_status_logged>=30*TICKS_PER_SECOND || time<hud_port_guide_status_logged)
++	{
++		error(_error_log, "guide: routes M%ld N%ld P%ld C%ld T%ld S%ld F%ld X%ld B%ld; map %s %ld/%ld",
++			hud_port_guide_status_counts['M'], hud_port_guide_status_counts['N'], hud_port_guide_status_counts['P'],
++			hud_port_guide_status_counts['C'], hud_port_guide_status_counts['T'], hud_port_guide_status_counts['S'],
++			hud_port_guide_status_counts['F'], hud_port_guide_status_counts['X'], hud_port_guide_status_counts['B'],
++			!hud_port_guide_map.active ? "off" : hud_port_guide_map.complete ? "done" : "building",
++			hud_port_guide_map.reached_count, hud_port_guide_map.surface_count);
++		csmemset(hud_port_guide_status_counts, 0, sizeof(hud_port_guide_status_counts));
++		hud_port_guide_status_logged = time;
++	}
++}
++
 +static boolean hud_port_guide_route_find(
 +	long unit_index,
 +	real_point3d const *target,
@@ -1502,6 +1934,53 @@
 +	{
 +		input.ignore_target_object_index = target_object_index;
 +	}
++
++	/* the distance map: a new one when the target moved or the level's part
++	changed; one done that does not reach the player is tried again from the
++	target's next floor (the first can be a roof) */
++	if (!hud_port_guide_map_for(target))
++	{
++		hud_port_guide_map_start(target, goal_surface_index, &goal, 0);
++	}
++	else if (hud_port_guide_map.complete && !hud_port_guide_map_reaches(start_surface_index) &&
++		hud_port_guide_map.candidate_index+1<GUIDE_MAP_MAXIMUM_CANDIDATES)
++	{
++		real_point3d next_goal;
++		long next_goal_surface_index;
++		short candidate_index = hud_port_guide_map.candidate_index+1;
++
++		if (hud_port_guide_goal_floor(target, candidate_index, &next_goal, &next_goal_surface_index))
++			hud_port_guide_map_start(target, next_goal_surface_index, &next_goal, candidate_index);
++		else
++			hud_port_guide_map.candidate_index = GUIDE_MAP_MAXIMUM_CANDIDATES;
++	}
++	{
++		real_point3d waypoint;
++		long waypoint_surface_index;
++		real walking_distance;
++		short map_result = hud_port_guide_map_waypoint(start_surface_index, &start, &waypoint,
++			&waypoint_surface_index, &walking_distance);
++
++		if (map_result==_guide_map_waypoint)
++		{
++			/* the short way to the map's waypoint, which the search always
++			covers; the part of it that comes closest when something is in the
++			way */
++			route->status = 'M';
++			path_state_new(&input, &hud_port_guide_path_state, NULL);
++			path_state_destination(&hud_port_guide_path_state, &waypoint, waypoint_surface_index, 0.5f);
++			if (!path_state_find(&hud_port_guide_path_state))
++			{
++				if (hud_port_guide_path_state.closest_node_index==NONE)
++					goto camino_normal;
++				hud_port_guide_path_state.destination.target_radius = 10000.f;
++				route->status = 'N';
++			}
++			goto construir;
++		}
++	}
++camino_normal:
++	route->status = 'P';
 +	/* the target's floors one after another until one can be walked to (a floor
 +	found from higher up can be a roof); with none, part of the way to the first */
 +	{
@@ -1544,6 +2023,7 @@
 +			}
 +		}
 +	}
++construir:
 +	if (path_state_build_path(&hud_port_guide_path_state, &path) && path.valid && path.step_count>0)
 +	{
 +		short step_index;
@@ -1556,10 +2036,11 @@
 +	}
 +	if (!found && route->status!='F')
 +	{
-+		route->status = route->status=='C' ? 'X' : 'B';
++		route->status = route->status=='C' || route->status=='N' ? 'X' : 'B';
 +	}
 +
 +listo:
++	hud_port_guide_note_status(route->status);
 +	return found;
 +}
 +
@@ -1635,10 +2116,19 @@
 +
 +		unit_get_head_position(unit_index, &head_position);
 +		hud_port_guide_route_point(local_player_index, unit_index, &target, target_object_index, &point);
++		/* (the distance map's work for this tick, while it is not done) */
++		hud_port_guide_map_step();
 +		point_object_index = point.x==target.x && point.y==target.y && point.z==target.z ?
 +			target_object_index : NONE;
 +		unit_get_camera_position(unit_index, &camera_position);
++		/* the meters: walking, from the distance map, when it knows them and the
++		target is not right there; else in a straight line */
 +		hud_port_nav_distance_override = distance3d(&camera_position, &target);
++		if (hud_port_guide_map_walking(unit_index, &target, &hud_port_guide_walking_distance) &&
++			hud_port_guide_walking_distance>hud_port_nav_distance_override)
++		{
++			hud_port_nav_distance_override = hud_port_guide_walking_distance;
++		}
 +		/* a corner of the route is drawn as in sight (the bumps of the ground hide
 +		it): the hidden kind is left to the target itself, when there is no way */
 +		custom_render_nav_point(
@@ -1658,7 +2148,7 @@
  void hud_render_nav_points(
  	short local_player_index)
  {
-@@ -902,6 +1328,8 @@
+@@ -902,6 +1818,8 @@
  				nav_point->nav_index,
  				nav_point->screen_type);
  		}
