@@ -2447,7 +2447,7 @@
  
 --- a/port/android/app/src/main/java/com/halo/decomp/TouchControls.java
 +++ b/port/android/app/src/main/java/com/halo/decomp/TouchControls.java
-@@ -61,6 +61,12 @@
+@@ -61,6 +61,17 @@
      private static final int TOOLBAR_EXPORT = -6;
      private static final int TOOLBAR_IMPORT = -7;
      private static final int TOOLBAR_SAVE = -8;
@@ -2457,10 +2457,15 @@
 +    private static final String[] HUD_NAMES = {"Escudo", "Vida", "Radar", "Munición", "Granadas"};
 +    /** a HUD part's box is at least this big, to be found with a finger (logical units) */
 +    private static final float HUD_MINIMUM_BOX = 44;
++    /** each part's tab, which a finger drags without hiding the part (logical units) */
++    private static final float HUD_TAB_HEIGHT = 30;
++    private static final float HUD_TAB_GAP = 6;
++    /** how much of a box stays on the screen when it is dragged past an edge */
++    private static final float HUD_KEEP_VISIBLE = 24;
      private static final float TOOLBAR_RADIUS = 28;
      private static final float OPTIONS_RADIUS = TouchLayout.OPTIONS_RADIUS;
      /** the editor's items, this far apart */
-@@ -161,6 +167,9 @@
+@@ -161,6 +172,9 @@
      private static native int nativeScene();
      private static native int nativeBindings(int[] controls);
      private static native void nativeDevices(boolean touchscreen, boolean controller);
@@ -2470,7 +2475,7 @@
  
      private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
      private final SharedPreferences preferences;
-@@ -223,6 +232,12 @@
+@@ -223,6 +237,14 @@
      private final int[] bindings = DEFAULT_BINDINGS.clone();
      private final int[] bindingsRead = new int[bindings.length];
      private int bindingsSerial;
@@ -2480,10 +2485,12 @@
 +    private final float[] hudRectsRead = new float[HUD_PARTS * 4];
 +    private int hudSerial;
 +    private final float[] hudMoves = new float[HUD_PARTS * 2];
++    /** each part's tab (left, top, right, bottom; NaN for a part not drawn yet) */
++    private final float[] hudTabs = new float[HUD_PARTS * 4];
  
      /** reads what the game says every frame: when to show, the buttons' names, and the rumble */
      private final Runnable poll = new Runnable() {
-@@ -233,6 +248,7 @@
+@@ -233,6 +255,7 @@
              scene = nativeScene();
              updateShowing();
              readBindings();
@@ -2491,7 +2498,7 @@
              updateRumble();
              postDelayed(this, POLL_MS);
          }
-@@ -552,7 +568,7 @@
+@@ -552,7 +575,7 @@
              return TOOLBAR_IMPORT;
          if (inside(x, y, middle + EDITOR_SPACING, editorY(), toolbarRadius(OPTIONS_RADIUS)))
              return TOOLBAR_SAVE;
@@ -2500,7 +2507,7 @@
      }
  
      /** the control under a point (logical units), or NOTHING */
-@@ -742,6 +758,7 @@
+@@ -742,6 +765,7 @@
              int target = hit(x, y);
              if (target == TOOLBAR_SAVE) {
                  if (saveLayout()) {
@@ -2508,7 +2515,7 @@
                      reset();
                      editing = false;
                      performClick();
-@@ -755,6 +772,12 @@
+@@ -755,6 +779,12 @@
                  dragControl = target;
                  dragOffsetX = x - optionsX();
                  dragOffsetY = y - optionsY();
@@ -2521,7 +2528,7 @@
              } else if (target >= 0) {
                  dragPointer = id;
                  dragControl = target;
-@@ -768,6 +791,8 @@
+@@ -768,6 +798,8 @@
                  float y = logical(event.getY(pointer)) - dragOffsetY;
                  if (dragControl == TOOLBAR_OPTIONS)
                      layout.moveOptions(x, y);
@@ -2530,7 +2537,7 @@
                  else
                      layout.move(dragControl, x, y);
              }
-@@ -778,6 +803,119 @@
+@@ -778,6 +810,183 @@
          }
      }
  
@@ -2579,6 +2586,12 @@
 +
 +    /** the part under a point (logical units), the smallest first (the radar holds no other) */
 +    private int hitHud(float x, float y) {
++        layoutHudTabs();
++        for (int part = 0; part < HUD_PARTS; part++) {
++            if (!Float.isNaN(hudTabs[part * 4]) && x >= hudTabs[part * 4] && x <= hudTabs[part * 4 + 2]
++                    && y >= hudTabs[part * 4 + 1] && y <= hudTabs[part * 4 + 3])
++                return HUD_PART - part;
++        }
 +        int found = NOTHING;
 +        float area = Float.MAX_VALUE;
 +        for (int part = 0; part < HUD_PARTS; part++) {
@@ -2596,12 +2609,55 @@
 +        return found;
 +    }
 +
-+    /** a part dragged so that its box's corner is at a point, kept on the screen */
++    /** where each part's tab goes: under its box (over it at the bottom of the screen), clear of the others */
++    private void layoutHudTabs() {
++        paint.setTextSize(13);
++        for (int part = 0; part < HUD_PARTS; part++) {
++            int at = part * 4;
++            if (!hudKnown(part)) {
++                hudTabs[at] = Float.NaN;
++                continue;
++            }
++            float left = hudLeft(part);
++            float top = hudTop(part);
++            float width = hudWidth(part);
++            float height = hudHeight(part);
++            float tabWidth = Math.max(70, paint.measureText(HUD_NAMES[part]) + 28);
++            float tabTop = top + height + HUD_TAB_GAP;
++            if (tabTop + HUD_TAB_HEIGHT > logicalHeight)
++                tabTop = top - HUD_TAB_GAP - HUD_TAB_HEIGHT;
++            tabTop = Math.max(0, Math.min(logicalHeight - HUD_TAB_HEIGHT, tabTop));
++            float tabLeft = Math.max(0, Math.min(logicalWidth - tabWidth, left + width / 2 - tabWidth / 2));
++            // (shield and health are drawn together: their tabs go side by side)
++            for (int tries = 0; tries < HUD_PARTS * 2; tries++) {
++                boolean clear = true;
++                for (int other = 0; other < part; other++) {
++                    int o = other * 4;
++                    if (Float.isNaN(hudTabs[o]) || tabLeft >= hudTabs[o + 2] + 4 || tabLeft + tabWidth + 4 <= hudTabs[o]
++                            || tabTop >= hudTabs[o + 3] || tabTop + HUD_TAB_HEIGHT <= hudTabs[o + 1])
++                        continue;
++                    clear = false;
++                    tabLeft = hudTabs[o + 2] + 4;
++                    if (tabLeft + tabWidth > logicalWidth)
++                        tabLeft = Math.max(0, hudTabs[o] - 4 - tabWidth);
++                }
++                if (clear)
++                    break;
++            }
++            hudTabs[at] = tabLeft;
++            hudTabs[at + 1] = tabTop;
++            hudTabs[at + 2] = tabLeft + tabWidth;
++            hudTabs[at + 3] = tabTop + HUD_TAB_HEIGHT;
++        }
++    }
++
++    /** a part dragged so that its box's corner is at a point; a box bigger than its picture
++     * (the radar's) may go past an edge, as long as some of it stays on the screen */
 +    private void moveHud(int part, float left, float top) {
 +        float width = hudWidth(part);
 +        float height = hudHeight(part);
-+        left = Math.max(0, Math.min(logicalWidth - width, left));
-+        top = Math.max(0, Math.min(logicalHeight - height, top));
++        left = Math.max(HUD_KEEP_VISIBLE - width, Math.min(logicalWidth - HUD_KEEP_VISIBLE, left));
++        top = Math.max(HUD_KEEP_VISIBLE - height, Math.min(logicalHeight - HUD_KEEP_VISIBLE, top));
 +        float drawnX = (hudRects[part * 4] + hudRects[part * 4 + 2]) / 2 * logicalWidth;
 +        float drawnY = (hudRects[part * 4 + 1] + hudRects[part * 4 + 3]) / 2 * logicalHeight;
 +        hudMoves[part * 2] = (left + width / 2 - drawnX) / logicalWidth;
@@ -2621,6 +2677,7 @@
 +    }
 +
 +    private void drawHud(Canvas canvas) {
++        layoutHudTabs();
 +        for (int part = 0; part < HUD_PARTS; part++) {
 +            if (!hudKnown(part))
 +                continue;
@@ -2637,20 +2694,34 @@
 +            paint.setStrokeWidth(2);
 +            paint.setColor(dragged ? 0xffaee7ff : 0xcc83d9ff);
 +            canvas.drawRoundRect(left, top, right, bottom, 8, 8, paint);
-+            // (the name outside the box, above it, or below it at the top of the screen)
++            // (its tab, with its name, joined to the box by a line)
++            int at = part * 4;
++            float tabLeft = hudTabs[at];
++            float tabTop = hudTabs[at + 1];
++            float tabRight = hudTabs[at + 2];
++            float tabBottom = hudTabs[at + 3];
++            float tabX = (tabLeft + tabRight) / 2;
++            float lineX = Math.max(left, Math.min(right, tabX));
++            boolean below = tabTop >= bottom;
++            canvas.drawLine(lineX, below ? bottom : top, tabX, below ? tabTop : tabBottom, paint);
++            paint.setStyle(Paint.Style.FILL);
++            paint.setColor(dragged ? 0xee83d9ff : 0xbb2a6a90);
++            canvas.drawRoundRect(tabLeft, tabTop, tabRight, tabBottom, 10, 10, paint);
++            paint.setStyle(Paint.Style.STROKE);
++            paint.setColor(dragged ? 0xffffffff : 0xcc83d9ff);
++            canvas.drawRoundRect(tabLeft, tabTop, tabRight, tabBottom, 10, 10, paint);
 +            paint.setStyle(Paint.Style.FILL);
 +            paint.setColor(Color.WHITE);
 +            paint.setTextAlign(Paint.Align.CENTER);
-+            paint.setTextSize(12);
-+            float nameY = top >= 16 ? top - 4 : bottom + 13;
-+            canvas.drawText(HUD_NAMES[part], (left + right) / 2, nameY, paint);
++            paint.setTextSize(13);
++            canvas.drawText(HUD_NAMES[part], tabX, (tabTop + tabBottom) / 2 + 4.5f, paint);
 +        }
 +    }
 +
      // ---------- the buttons' names, from the player's profile
  
      private void readBindings() {
-@@ -862,6 +1000,9 @@
+@@ -862,6 +1071,9 @@
                      post(this::showGeneral);
                  } else if (which == 1) {
                      editing = true;
@@ -2660,16 +2731,16 @@
                      setHidden(false);
                  } else {
                      post(this::showSensitivity);
-@@ -1273,6 +1414,8 @@
+@@ -1273,6 +1485,8 @@
              paint.setTextSize(14);
              canvas.drawText("Drag the controls and Options, then push Save", middle,
                  editorY() + toolbarRadius(OPTIONS_RADIUS) + 24, paint);
-+            canvas.drawText("Arrastra también las cajas azules para mover el HUD", middle,
++            canvas.drawText("Mueve el HUD arrastrando las pestañas azules (o el cuadro)", middle,
 +                editorY() + toolbarRadius(OPTIONS_RADIUS) + 42, paint);
          } else {
              toolbarItem(canvas, logicalWidth / 2, toolbarY(), TOOLBAR_RADIUS, hidden ? "Touch" : "Hide", false);
          }
-@@ -1296,6 +1439,8 @@
+@@ -1296,6 +1510,8 @@
              return;
          canvas.save();
          canvas.scale(scale, scale);
