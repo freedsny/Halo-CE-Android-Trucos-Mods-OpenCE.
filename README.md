@@ -36,18 +36,49 @@ Las cuatro últimas funcionan como **botones**: las pones en ON, vuelves al jueg
 Los trucos **solo funcionan en partidas que no son en red**. En el juego de otro jugador valen sus reglas.
 
 ### Flecha guía
-En **TRUCOS > GUIA** hay una **flecha** con la distancia en metros, dibujada como los marcadores del juego. Puede apuntar a:
+Una **flecha con la distancia en metros** que te indica hacia dónde ir. Se dibuja igual que los marcadores que el propio juego pone en algunas misiones: una flecha sobre el lugar y los metros debajo. Si lo que busca queda detrás de ti o fuera de la pantalla, la flecha se pega al borde de la pantalla del lado por donde tienes que girar.
 
-- **Objetivo de la misión**: en la campaña, la zona a la que la misión espera que llegues para avanzar. La flecha lee en vivo qué está esperando la misión, así que cambia sola cuando avanzas o cambia el objetivo, y funciona al cargar una partida guardada. Está preparada para las diez misiones de la campaña.
-- **Aliado más cercano** o **enemigo más cercano**.
+#### Cómo activarla
+**Pausa > AJUSTES > TRUCOS > GUIA > FLECHA GUIA** (también desde **AJUSTES > tu perfil > TRUCOS > GUIA**). Tiene cuatro opciones:
 
-**Funciona como un GPS**: no apunta a través de las paredes. Usa el mismo buscador de caminos que usan los marines y los Covenant para moverse por el mapa, y apunta a la **siguiente esquina, puerta o rampa** del camino. Los metros son la distancia hasta el objetivo final.
+| Opción | A dónde apunta |
+|---|---|
+| **APAGADA** | No se muestra (así viene) |
+| **OBJETIVO MISION** | Al lugar al que la misión espera que llegues para avanzar |
+| **ALIADO CERCANO** | Al aliado vivo más cercano (marines y demás compañeros) |
+| **ENEMIGO CERCANO** | Al enemigo vivo más cercano |
 
+El cambio se ve al volver al juego, sin reiniciar. La elección se guarda.
+
+#### Objetivo de la misión
+- En la campaña, cada misión tiene zonas invisibles que hacen avanzar la historia cuando entras en ellas (abrir una puerta, que llegue un Pelican, la siguiente escena). La flecha **lee en vivo qué zona está esperando la misión** y apunta a ella.
+- Cambia sola cuando avanzas o cambia el objetivo, y funciona también al **cargar una partida guardada** o al empezar desde un punto de control.
+- Está preparada para las **diez misiones**: The Pillar of Autumn, Halo, The Truth and Reconciliation, The Silent Cartographer, Assault on the Control Room, 343 Guilty Spark, The Library, Two Betrayals, Keyes y The Maw.
+- Si en un momento la misión **no espera que llegues a ningún lugar** (por ejemplo, mientras tienes que eliminar a todos los enemigos de una zona, defender un punto o esperar una escena), **la flecha no aparece**. Vuelve sola cuando la misión vuelve a esperar que camines a algún sitio.
+- Fuera de la campaña (multijugador, mapas sin misión) esta opción no muestra nada.
+
+#### Aliado y enemigo cercano
+- **Aliado**: cualquier personaje vivo que no sea tu enemigo. No apunta a los que ya tienes al lado (a menos de unos 12 metros), para que te lleve con el resto del grupo.
+- **Enemigo**: el enemigo vivo más cercano, esté donde esté. Sirve para encontrar al último Covenant que te falta para que la misión avance.
+- "Más cercano" es en línea recta: puede ser alguien al otro lado de una pared. La flecha te lleva por el camino para llegar a él (ver abajo).
+
+#### Funciona como un GPS
+La flecha **no apunta a través de las paredes**. Usa el mismo buscador de caminos con el que se mueven los marines y los Covenant por el mapa, y apunta a la **siguiente esquina, puerta o rampa** del camino. Cuando pasas esa esquina, salta a la siguiente.
+
+- **Los metros** son siempre la distancia hasta el **objetivo final**, no hasta la esquina a la que apunta la flecha.
 - **Flecha doble (⌄⌄)**: es el GPS, el camino a seguir.
-- **Rombo (◆)**: no encontró camino y apunta en línea recta. Pasa cuando el objetivo está en otra parte del mapa que todavía no está cargada (por ejemplo, afuera mientras estás dentro de un edificio) o arriba de un ascensor.
-- Cuando el objetivo está muy lejos, el GPS calcula solo la primera parte del camino.
+- **Rombo (◆)**: no encontró camino y apunta en **línea recta** al objetivo. Te acerca igual, pero puede apuntar a una pared o a un barranco.
+- El camino se recalcula unas tres veces por segundo, y antes si el objetivo se mueve (un aliado o enemigo que camina).
 
-Si en un momento la misión no espera que llegues a ningún lugar (por ejemplo, mientras tienes que eliminar enemigos), la flecha no aparece.
+#### Cuándo sale el rombo o la flecha se equivoca
+- **El objetivo está en otra parte del mapa que todavía no está cargada.** Los mapas se cargan por partes: estando dentro de un edificio, el exterior no está cargado, y al revés. En cuanto cruzas a esa parte, la flecha vuelve a ser GPS.
+- **El objetivo está arriba o abajo de un ascensor**, o en el aire: el buscador de caminos no sabe usar ascensores.
+- **El objetivo está muy lejos**: el GPS calcula solo la primera parte del camino y te lleva en esa dirección. En mapas abiertos y grandes (como **343 Guilty Spark**) a veces apunta hacia montañas que no se pueden cruzar; en ese caso camina un poco hacia los lados o sigue el camino del mapa y la flecha se corrige al acercarte. Está planeado mejorarlo.
+
+#### Consejos
+- Si la flecha parece rara, camina unos pasos: se recalcula enseguida.
+- El GPS es liviano: busca el camino pocas veces por segundo y una sola búsqueda a la vez, así que el juego no se pone lento. En las pruebas no se notó ninguna diferencia.
+- La flecha es solo una ayuda visual: no cambia la misión ni hace trampa con los enemigos.
 
 ### HUD movible
 La forma más fácil es **con el dedo**: en partida toca **Options > Edit buttons layout**. Sobre el escudo, la vida, el radar, la munición y las granadas aparecen cuadros azules, cada uno con una pestaña con su nombre. Arrastra la pestaña (o el cuadro) y la parte del HUD se mueve en vivo; al pulsar **Save** queda guardada.
