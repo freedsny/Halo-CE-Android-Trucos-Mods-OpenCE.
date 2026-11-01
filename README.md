@@ -50,7 +50,12 @@ En **TRUCOS > GUIA** hay una **flecha** con la distancia en metros, dibujada com
 Si en un momento la misión no espera que llegues a ningún lugar (por ejemplo, mientras tienes que eliminar enemigos), la flecha no aparece.
 
 ### HUD movible
-En **TRUCOS > HUD** hay una pantalla para cada parte: radar, escudo, vida, munición y granadas. Cada una se mueve en horizontal y vertical con un ajuste **grueso** (de 100 en 100, hasta ±1000) y uno **fino** (de 5 en 5, se suma al grueso): por ejemplo, 625 es 600 y +25. Un número positivo mueve a la derecha o hacia abajo; 0 deja cada parte donde el juego la pone. La mira no se puede mover.
+La forma más fácil es **con el dedo**: en partida toca **Options > Edit buttons layout**. Sobre el escudo, la vida, el radar, la munición y las granadas aparecen cuadros azules, cada uno con una pestaña con su nombre. Arrastra la pestaña (o el cuadro) y la parte del HUD se mueve en vivo; al pulsar **Save** queda guardada.
+
+También se puede ajustar con números en **TRUCOS > HUD**, que tiene una pantalla para cada parte. Cada una se mueve en horizontal y vertical con un ajuste **grueso** (de 100 en 100, hasta ±1000) y uno **fino** (de 5 en 5, se suma al grueso): por ejemplo, 625 es 600 y +25. Un número positivo mueve a la derecha o hacia abajo; 0 deja cada parte donde el juego la pone. Lo que mueves con el dedo aparece ahí también. La mira no se puede mover.
+
+### Radar con barrido
+El radar tiene encima un barrido azul que gira, una cruz y dos anillos. El resto del HUD es el original. Para volver al radar original: **TRUCOS > HUD: RADAR > RADAR CON BARRIDO: OFF**.
 
 ### Ajustes
 En **TRUCOS > AJUSTES**:
