@@ -1241,7 +1241,7 @@
  
  	if (distance > 15.f)
  	{
-@@ -807,6 +823,906 @@
+@@ -807,6 +823,914 @@
  	return;
  }
  
@@ -1641,6 +1641,28 @@
 +	return top;
 +}
 +
++/* the map's room given back (the game's free takes no NULL: debug_memory.c) */
++static void hud_port_guide_map_free(
++	void)
++{
++	if (hud_port_guide_map.distances)
++		free(hud_port_guide_map.distances);
++	if (hud_port_guide_map.nexts)
++		free(hud_port_guide_map.nexts);
++	if (hud_port_guide_map.anchors)
++		free(hud_port_guide_map.anchors);
++	if (hud_port_guide_map.places)
++		free(hud_port_guide_map.places);
++	if (hud_port_guide_map.heap)
++		free(hud_port_guide_map.heap);
++	hud_port_guide_map.distances = NULL;
++	hud_port_guide_map.nexts = NULL;
++	hud_port_guide_map.anchors = NULL;
++	hud_port_guide_map.places = NULL;
++	hud_port_guide_map.heap = NULL;
++	hud_port_guide_map.capacity = 0;
++}
++
 +/* a new map from a floor under the target; FALSE if there is no room for it */
 +static boolean hud_port_guide_map_start(
 +	real_point3d const *target,
@@ -1660,11 +1682,7 @@
 +	if (count>hud_port_guide_map.capacity)
 +	{
 +		/* (the room is taken once, as big as the level's part needs, and kept) */
-+		free(hud_port_guide_map.distances);
-+		free(hud_port_guide_map.nexts);
-+		free(hud_port_guide_map.anchors);
-+		free(hud_port_guide_map.places);
-+		free(hud_port_guide_map.heap);
++		hud_port_guide_map_free();
 +		hud_port_guide_map.distances = malloc(count*sizeof(real));
 +		hud_port_guide_map.nexts = malloc(count*sizeof(long));
 +		hud_port_guide_map.anchors = malloc(count*sizeof(real_point3d));
@@ -1674,17 +1692,7 @@
 +		if (!hud_port_guide_map.distances || !hud_port_guide_map.nexts || !hud_port_guide_map.anchors ||
 +			!hud_port_guide_map.places || !hud_port_guide_map.heap)
 +		{
-+			free(hud_port_guide_map.distances);
-+			free(hud_port_guide_map.nexts);
-+			free(hud_port_guide_map.anchors);
-+			free(hud_port_guide_map.places);
-+			free(hud_port_guide_map.heap);
-+			hud_port_guide_map.distances = NULL;
-+			hud_port_guide_map.nexts = NULL;
-+			hud_port_guide_map.anchors = NULL;
-+			hud_port_guide_map.places = NULL;
-+			hud_port_guide_map.heap = NULL;
-+			hud_port_guide_map.capacity = 0;
++			hud_port_guide_map_free();
 +			error(_error_log, "guide: no memory for the distance map (%ld surfaces)", count);
 +			return FALSE;
 +		}
@@ -2148,7 +2156,7 @@
  void hud_render_nav_points(
  	short local_player_index)
  {
-@@ -902,6 +1818,8 @@
+@@ -902,6 +1826,8 @@
  				nav_point->nav_index,
  				nav_point->screen_type);
  		}
